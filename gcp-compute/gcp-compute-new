@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+import util.strings
+import logging
+import googleapiclient.discovery
+import os
+import argh
+import cli_gcp
+
+_default_init = 'date > /tmp/cloudinit.log'
+
+_nvme_init = """
+# pick the first nvme drive which is NOT mounted as / and prepare that as /mnt
+disk=$(sudo fdisk -l | grep ^Disk | grep nvme | awk '{print $2}' | tr -d : | sort -u | grep -v $(df / | grep /dev | awk '{print $1}' | head -c11) | head -n1)
+(
+ echo g # Create a new empty GPT partition table
+ echo n # Add a new partition
+ echo 1 # Partition number
+ echo   # First sector (Accept default: 1)
+ echo   # Last sector (Accept default: varies)
+ echo w # Write changes
+) | sudo fdisk $disk
+sleep 2
+sudo mkfs -t ext4 ${disk}p1
+sudo mkdir -p /mnt
+sudo mount -o discard ${disk}p1 /mnt
+sudo chown -R $(whoami):$(whoami) /mnt
+"""
+
+_timeout_init = """
+echo '# timeout will call this script before it `sudo poweroff`s, and wait 60 seconds for this script to complete' >> /tmp/timeout.sh
+echo '
+    warning="seconds remaining until timeout poweroff. tail -f /var/log/timeout.log to follow, increase /tmp/timeout.seconds to delay, or kill timeout.poweroff.sh to cancel."
+    echo {} > /tmp/timeout.seconds
+    # count down until timeout
+    start=$(date +%s)
+    while true; do
+        now=$(date +%s)
+        duration=$(($now - $start))
+        timeout=$(cat /tmp/timeout.seconds)
+        (($duration > $timeout)) && break
+        remaining=$(($timeout - $duration))
+        (($remaining <= 300)) && (($remaining % 60 == 0)) && wall "$remaining $warning"
+        echo uptime seconds: $duration | sudo tee /var/log/timeout.log
+        echo poweroff in seconds: $remaining | sudo tee -a /var/log/timeout.log
+        sleep 1
+    done
+    # run timeout script and wait 60 seconds
+    echo run: bash /tmp/timeout.sh > /var/log/timeout.log
+    bash /tmp/timeout.sh &
+    pid=$!
+    start=$(date +%s)
+    overtime=60
+    while true; do
+        ps $pid || break
+        now=$(date +%s)
+        duration=$(($now - $start))
+        (($duration > $overtime)) && break
+        remaining=$(($overtime - $duration))
+        echo seconds until poweroff: $remaining > /var/log/timeout.log
+        sleep 1
+    done
+    sudo poweroff
+' > /tmp/timeout.poweroff.sh
+bash /tmp/timeout.poweroff.sh &> /dev/null </dev/null &
+disown %1
+"""
+
+def main(name: 'name of the instance',
+         type: 'instance type' = os.environ.get('GCP_COMPUTE_TYPE'),
+         zone: 'gcp availability zone' = os.environ['GCP_ZONE'],
+         project: 'gcp project' = os.environ['GCP_PROJECT'],
+         service_account = 'default',
+         ssh_user: (
+             'what ssh user to use for this instance. '
+             'this is ami specific, if not provided '
+             'will try to guess based on ami choice, '
+             'finally defaulting to "ubuntu".')        = None,
+         init=_default_init,
+         local_ssd=True,
+         seconds_timeout=60 * 60,
+         ):
+    if ssh_user:
+        user = ssh_user
+    # elif 'ssh-user' in ami_tags:
+        # user = ami_tags['ssh-user']
+    # elif ami_name == 'arch':
+        # user = 'root'
+    else:
+        user = 'ubuntu'
+    logging.info(f'ssh-user: {user}')
+    compute = googleapiclient.discovery.build('compute', 'v1')
+    image_response = compute.images().getFromFamily(project='ubuntu-os-cloud', family='ubuntu-1804-lts').execute()
+    source_disk_image = image_response['selfLink']
+    machine_type = f"zones/{zone}/machineTypes/{type}"
+    if local_ssd:
+        init = _nvme_init + init
+    if seconds_timeout:
+        logging.info('this instance will `sudo poweroff` after %s seconds, or %s hours, because of --seconds-timeout', seconds_timeout, round(int(seconds_timeout) / 60. / 60., 1))
+        init = _timeout_init.format(seconds_timeout) + init
+    assert not init.startswith('#!'), 'init commands are bash snippets, and should not include a hashbang'
+    init = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(init), user)
+    config = {'name': name,
+              'machineType': machine_type,
+              'scheduling': {'preemtible': True},
+              'labels': {'a-key': 'a-value'},
+              'disks': [{'boot': True,
+                         'autoDelete': True,
+                         'initializeParams': {'sourceImage': source_disk_image}},
+                        {'autoDelete': True,
+                         'diskType': 'local-ssd',
+                         'type': 'SCRATCH',
+                         "interface": "NVME",
+                         "initializeParams": {"diskType": "projects/specto-dev/zones/us-central1-a/diskTypes/local-ssd"}}],
+              'networkInterfaces': [{'network': 'global/networks/default',
+                                     'accessConfigs': [{'type': 'ONE_TO_ONE_NAT', 'name': 'External NAT'}]}],
+              'serviceAccounts': [{'email': service_account}],
+              'metadata': {'items': [{'key': 'startup-script', 'value': init}]}}
+    return compute.instances().insert(
+        project=project,
+        zone=zone,
+        body=config,
+    ).execute()
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
