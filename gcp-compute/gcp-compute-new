@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+import yaml
+import json
 import util.strings
 import logging
-import googleapiclient.discovery
 import os
 import argh
 import cli_gcp
@@ -65,11 +66,19 @@ bash /tmp/timeout.poweroff.sh &> /dev/null </dev/null &
 disown %1
 """
 
-def main(name: 'name of the instance',
-         type: 'instance type' = os.environ.get('GCP_COMPUTE_TYPE'),
-         zone: 'gcp availability zone' = os.environ['GCP_ZONE'],
-         project: 'gcp project' = os.environ['GCP_PROJECT'],
-         service_account = 'default',
+@argh.arg('-n', '--network-tag', action='append')
+def main(name,
+         *labels,
+         network_tag=None,
+         type=os.environ['GCP_COMPUTE_TYPE'],
+         zone=os.environ['GCP_ZONE'],
+         project=os.environ['GCP_PROJECT'],
+         service_account='default',
+         image='ubuntu-1804-lts',
+         ondemand=False,
+         gigs=64,
+         no_local_ssd=False,
+         network_tier='STANDARD',
          ssh_user: (
              'what ssh user to use for this instance. '
              'this is ami specific, if not provided '
@@ -79,19 +88,20 @@ def main(name: 'name of the instance',
          local_ssd=True,
          seconds_timeout=60 * 60,
          ):
+    network_tags = network_tag or []
     if ssh_user:
         user = ssh_user
-    # elif 'ssh-user' in ami_tags:
-        # user = ami_tags['ssh-user']
-    # elif ami_name == 'arch':
-        # user = 'root'
+    elif image == 'arch':
+        user = 'root'
     else:
         user = 'ubuntu'
     logging.info(f'ssh-user: {user}')
-    compute = googleapiclient.discovery.build('compute', 'v1')
-    image_response = compute.images().getFromFamily(project='ubuntu-os-cloud', family='ubuntu-1804-lts').execute()
+    image_projects = {'ubuntu': 'ubuntu-os-cloud',
+                      'arch': 'arch-linux-gce'}
+    image_response = cli_gcp.compute().images().getFromFamily(project=image_projects[image.split('-')[0]], family=image).execute()
     source_disk_image = image_response['selfLink']
     machine_type = f"zones/{zone}/machineTypes/{type}"
+    ssd_type = f"projects/specto-dev/zones/{zone}/diskTypes/local-ssd"
     if local_ssd:
         init = _nvme_init + init
     if seconds_timeout:
@@ -99,27 +109,35 @@ def main(name: 'name of the instance',
         init = _timeout_init.format(seconds_timeout) + init
     assert not init.startswith('#!'), 'init commands are bash snippets, and should not include a hashbang'
     init = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(init), user)
+    disks = [{'boot': True,
+              'autoDelete': True,
+              'diskSizeGb': gigs,
+              'initializeParams': {'sourceImage': source_disk_image}}]
+    if not no_local_ssd:
+        disks += [{'autoDelete': True,
+                   'diskType': 'local-ssd',
+                   'type': 'SCRATCH',
+                   "interface": "NVME",
+                   "initializeParams": {"diskType": ssd_type}}]
+    for label in labels:
+        assert ',' not in label, f'bad label, cannot contain comma: {label}'
+        assert 1 == label.count('='), f'bad label, should be key=value, not: {label}'
+    labels = dict(label.split('=') for label in labels)
+    labels['ssh-user'] = user
     config = {'name': name,
               'machineType': machine_type,
-              'scheduling': {'preemtible': True},
-              'labels': {'a-key': 'a-value'},
-              'disks': [{'boot': True,
-                         'autoDelete': True,
-                         'initializeParams': {'sourceImage': source_disk_image}},
-                        {'autoDelete': True,
-                         'diskType': 'local-ssd',
-                         'type': 'SCRATCH',
-                         "interface": "NVME",
-                         "initializeParams": {"diskType": "projects/specto-dev/zones/us-central1-a/diskTypes/local-ssd"}}],
+              'tags': {"items": network_tags},
+              'scheduling': {'preemptible': not ondemand},
+              'labels': labels,
+              'disks': disks,
               'networkInterfaces': [{'network': 'global/networks/default',
+                                     'networkTier': network_tier,
                                      'accessConfigs': [{'type': 'ONE_TO_ONE_NAT', 'name': 'External NAT'}]}],
-              'serviceAccounts': [{'email': service_account}],
-              'metadata': {'items': [{'key': 'startup-script', 'value': init}]}}
-    return compute.instances().insert(
-        project=project,
-        zone=zone,
-        body=config,
-    ).execute()
+              'serviceAccounts': [{'email': service_account}]}
+    logging.info(yaml.dump(config))
+    config['metadata'] = {'items': [{'key': 'startup-script', 'value': init}]}
+    res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
+    logging.info(yaml.dump(res))
 
 if __name__ == '__main__':
     with cli_gcp.setup():
