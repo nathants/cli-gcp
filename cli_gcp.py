@@ -89,12 +89,13 @@ def setup():
     logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
     logging.getLogger('googleapiclient.discovery').setLevel(logging.ERROR)
     util.log.setup(format='%(message)s')
-    if util.hacks.override('--stream'):
-        shell.set_stream().__enter__()
-    try:
-        yield
-    except AssertionError as e:
-        logging.info(red('error: %s' % (e.args[0] if e.args else traceback.format_exc().splitlines()[-2].strip())))
-        sys.exit(1)
-    except:
-        raise
+    with shell.set_echo():
+        if util.hacks.override('--stream'):
+            shell.set_stream().__enter__()
+        try:
+            yield
+        except AssertionError as e:
+            logging.info(red('error: %s' % (e.args[0] if e.args else traceback.format_exc().splitlines()[-2].strip())))
+            sys.exit(1)
+        except:
+            raise

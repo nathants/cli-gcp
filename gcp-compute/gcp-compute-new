@@ -87,6 +87,7 @@ def main(name,
          init=_default_init,
          local_ssd=True,
          seconds_timeout=60 * 60,
+         return_config_only=False,
          ):
     network_tags = network_tag or []
     if ssh_user:
@@ -115,7 +116,6 @@ def main(name,
               'initializeParams': {'sourceImage': source_disk_image}}]
     if not no_local_ssd:
         disks += [{'autoDelete': True,
-                   'diskType': 'local-ssd',
                    'type': 'SCRATCH',
                    "interface": "NVME",
                    "initializeParams": {"diskType": ssd_type}}]
@@ -131,13 +131,17 @@ def main(name,
               'labels': labels,
               'disks': disks,
               'networkInterfaces': [{'network': 'global/networks/default',
-                                     'networkTier': network_tier,
-                                     'accessConfigs': [{'type': 'ONE_TO_ONE_NAT', 'name': 'External NAT'}]}],
+                                     'accessConfigs': [{'type': 'ONE_TO_ONE_NAT',
+                                                        'networkTier': network_tier,
+                                                        'name': 'External NAT'}]}],
               'serviceAccounts': [{'email': service_account}]}
     logging.info(yaml.dump(config))
     config['metadata'] = {'items': [{'key': 'startup-script', 'value': init}]}
-    res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
-    logging.info(yaml.dump(res))
+    if return_config_only:
+        print(json.dumps(config))
+    else:
+        res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
+        logging.info(yaml.dump(res))
 
 if __name__ == '__main__':
     with cli_gcp.setup():

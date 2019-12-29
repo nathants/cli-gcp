@@ -10,6 +10,7 @@ def main(*selectors,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT'],
          yes=False):
+    assert selectors, 'you just tried to delete all things'
     state = 'running'
     zones = shell.run('gcp-zones --region', region).splitlines()
     logging.info('going to delete:\n')
