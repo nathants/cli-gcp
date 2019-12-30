@@ -121,7 +121,7 @@ def ensure_ssl_cert(project, ssl_cert_name, ip_address):
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
-            shell.run('openssl req -x509 -nodes -newkey rsa:2048 -keyout ssl.key -out ssl.crt -days 9999 -subj "/CN={ip_address}/O=Fake Name/C=US"')
+            shell.run(f'openssl req -x509 -nodes -newkey rsa:2048 -keyout ssl.key -out ssl.crt -days 9999 -subj "/CN={ip_address}/O=Fake Name/C=US"')
             with open('ssl.crt') as f:
                 crt = f.read()
             with open('ssl.key') as f:
