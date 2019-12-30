@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+import yaml
+import shell
+import json
+import logging
+import googleapiclient.errors
+import googleapiclient.discovery
+import os
+import argh
+import cli_gcp
+from util import cached
+from util.retry import retry
+
+def main(name,
+         region=os.environ['GCP_REGION'],
+         project=os.environ['GCP_PROJECT'],
+         yes=False):
+    zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
+    if not yes:
+        logging.info('going to delete:\n')
+
+        # http forwarding rules
+        try:
+            res = cli_gcp.compute().globalForwardingRules().get(project=project, forwardingRule=f'{name}-http-forwarding-rules').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'forwardingRule': res}))
+
+        # https forwarding rules
+        try:
+            res = cli_gcp.compute().globalForwardingRules().get(project=project, forwardingRule=f'{name}-https-forwarding-rules').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'forwardingRule': res}))
+
+        # target https proxy
+        try:
+            res = cli_gcp.compute().targetHttpsProxies().get(project=project, targetHttpsProxy=f'{name}-https-proxy').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'targetHttpsProxies': res}))
+
+        # target http proxy
+        try:
+            res = cli_gcp.compute().targetHttpProxies().get(project=project, targetHttpProxy=f'{name}-http-proxy').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'targetHttpProxies': res}))
+
+        # global addresses
+        try:
+            res = cli_gcp.compute().globalAddresses().get(project=project, address=f'{name}-ip-address').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'globalAddress': res}))
+
+        # ssl cert
+        try:
+            res = cli_gcp.compute().sslCertificates().get(project=project, sslCertificate=f'{name}-ssl-cert').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'sslCertificate': res}))
+
+        # url map
+        try:
+            res = cli_gcp.compute().urlMaps().get(project=project, urlMap=f'{name}-url-map').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'urlMap': res}))
+
+        # backend service
+        try:
+            res = cli_gcp.compute().backendServices().get(project=project, backendService=f'{name}-backend-service').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'backendService': res}))
+
+        # instance group manager
+        for zone in zones:
+            try:
+                res = cli_gcp.compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=f'{name}-instance-group-manager').execute()
+            except googleapiclient.errors.HttpError as e:
+                if e.resp.status != 404:
+                    raise
+            else:
+                logging.info(yaml.dump({'instanceGroupManager': res}))
+
+        # instance template
+        try:
+            res = cli_gcp.compute().instanceTemplates().get(project=project, instanceTemplate=f'{name}-instance-template').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            del res['properties']['metadata'] # too noise for ls
+            logging.info(yaml.dump({'instanceTemplate': res}))
+
+        # health check
+        try:
+            res = cli_gcp.compute().healthChecks().get(project=project, healthCheck=f'{name}-health-check').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'healthCheck': res}))
+
+        logging.info('\nwould you like to proceed? y/n\n')
+        assert shell.getch() == 'y', 'abort'
+
+    ######################### do delete ##################################
+
+    # http forwarding rule
+    delete = cli_gcp.compute().globalForwardingRules().delete(project=project, forwardingRule=f'{name}-http-forwarding-rules').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-http-forwarding-rule')
+    else:
+        logging.info(yaml.dump(res))
+
+    # https forwarding rule
+    delete = cli_gcp.compute().globalForwardingRules().delete(project=project, forwardingRule=f'{name}-https-forwarding-rules').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-https-forwarding-rules')
+    else:
+        logging.info(yaml.dump(res))
+
+    # https proxy
+    delete = cli_gcp.compute().targetHttpsProxies().delete(project=project, targetHttpsProxy=f'{name}-https-proxy').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-https-proxy')
+    else:
+        logging.info(yaml.dump(res))
+
+    # http proxy
+    delete = cli_gcp.compute().targetHttpProxies().delete(project=project, targetHttpProxy=f'{name}-http-proxy').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-http-proxy')
+    else:
+        logging.info(yaml.dump(res))
+
+    # global address
+    delete = cli_gcp.compute().globalAddresses().delete(project=project, address=f'{name}-ip-address').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-ip-address')
+    else:
+        logging.info(yaml.dump(res))
+
+    # ssl cert
+    delete = cli_gcp.compute().sslCertificates().delete(project=project, sslCertificate=f'{name}-ssl-cert').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-ssl-cert')
+    else:
+        logging.info(yaml.dump(res))
+
+    # url map
+    delete = cli_gcp.compute().urlMaps().delete(project=project, urlMap=f'{name}-url-map').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-url-map')
+    else:
+        logging.info(yaml.dump(res))
+
+    # backend service
+    delete = cli_gcp.compute().backendServices().delete(project=project, backendService=f'{name}-backend-service').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-backend-service')
+    else:
+        logging.info(yaml.dump(res))
+
+    # instance group manager
+    for zone in zones:
+        delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=f'{name}-instance-group-manager').execute
+        try:
+            res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+            logging.info(f'already deleted: {name}-instance-group-manager {zone}')
+        else:
+            logging.info(yaml.dump(res))
+
+    # instance template
+    delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=f'{name}-instance-template').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-instance-template')
+    else:
+        logging.info(yaml.dump(res))
+
+    # health check
+    delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=f'{name}-health-check').execute
+    try:
+        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-health-check')
+    else:
+        logging.info(yaml.dump(res))
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
