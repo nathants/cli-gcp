@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import uuid
 import yaml
 import json
 import util.strings
@@ -6,6 +7,7 @@ import logging
 import os
 import argh
 import cli_gcp
+from util import cached
 
 _default_init = 'date > /tmp/cloudinit.log'
 
@@ -28,9 +30,9 @@ sudo chown -R $(whoami):$(whoami) /mnt
 """
 
 _timeout_init = """
-echo '# timeout will call this script before it `sudo poweroff`s, and wait 60 seconds for this script to complete' >> /tmp/timeout.sh
+echo '# timeout will call this script before it `sudo halt`s, and wait 60 seconds for this script to complete' >> /tmp/timeout.sh
 echo '
-    warning="seconds remaining until timeout poweroff. tail -f /var/log/timeout.log to follow, increase /tmp/timeout.seconds to delay, or kill timeout.poweroff.sh to cancel."
+    warning="seconds remaining until timeout halt. tail -f /var/log/timeout.log to follow, increase /tmp/timeout.seconds to delay, or kill timeout.halt.sh to cancel."
     echo {} > /tmp/timeout.seconds
     # count down until timeout
     start=$(date +%s)
@@ -42,7 +44,7 @@ echo '
         remaining=$(($timeout - $duration))
         (($remaining <= 300)) && (($remaining % 60 == 0)) && wall "$remaining $warning"
         echo uptime seconds: $duration | sudo tee /var/log/timeout.log
-        echo poweroff in seconds: $remaining | sudo tee -a /var/log/timeout.log
+        echo halt in seconds: $remaining | sudo tee -a /var/log/timeout.log
         sleep 1
     done
     # run timeout script and wait 60 seconds
@@ -57,14 +59,21 @@ echo '
         duration=$(($now - $start))
         (($duration > $overtime)) && break
         remaining=$(($overtime - $duration))
-        echo seconds until poweroff: $remaining > /var/log/timeout.log
+        echo seconds until halt: $remaining > /var/log/timeout.log
         sleep 1
     done
-    sudo poweroff
-' > /tmp/timeout.poweroff.sh
-bash /tmp/timeout.poweroff.sh &> /dev/null </dev/null &
+    sudo halt
+' > /tmp/timeout.halt.sh
+bash /tmp/timeout.halt.sh &> /dev/null </dev/null &
 disown %1
 """
+
+@cached.disk_memoize(max_age_seconds=60 * 60 * 24)
+def get_image(image):
+    image_projects = {'ubuntu': 'ubuntu-os-cloud',
+                      'arch': 'arch-linux-gce'}
+    image_response = cli_gcp.compute().images().getFromFamily(project=image_projects[image.split('-')[0]], family=image).execute()
+    return image_response['selfLink']
 
 @argh.arg('-n', '--network-tag', action='append')
 def main(name,
@@ -89,6 +98,9 @@ def main(name,
          seconds_timeout=60 * 60,
          return_config_only=False,
          ):
+    if not return_config_only:
+        uid = str(uuid.uuid4()).split("-")[0]
+        name = f'{name}-{uid}'
     network_tags = network_tag or []
     if ssh_user:
         user = ssh_user
@@ -97,23 +109,27 @@ def main(name,
     else:
         user = 'ubuntu'
     logging.info(f'ssh-user: {user}')
-    image_projects = {'ubuntu': 'ubuntu-os-cloud',
-                      'arch': 'arch-linux-gce'}
-    image_response = cli_gcp.compute().images().getFromFamily(project=image_projects[image.split('-')[0]], family=image).execute()
-    source_disk_image = image_response['selfLink']
+    source_disk_image = get_image(image)
     machine_type = f"zones/{zone}/machineTypes/{type}"
-    ssd_type = f"projects/specto-dev/zones/{zone}/diskTypes/local-ssd"
+    ssd_type = f"projects/{project}/zones/{zone}/diskTypes/local-ssd"
+    if os.path.isfile(init):
+        logging.info(f'loading init script from file: {init}')
+        with open(init) as f:
+            init = f.read()
+        if init.startswith('#!'):
+            assert init.startswith('#!/bin/bash'), f'bad init script: {init[:50]}...'
+            init = '\n'.join(init.split('\n')[1:])
     if local_ssd:
         init = _nvme_init + init
     if seconds_timeout:
-        logging.info('this instance will `sudo poweroff` after %s seconds, or %s hours, because of --seconds-timeout', seconds_timeout, round(int(seconds_timeout) / 60. / 60., 1))
+        logging.info('this instance will `sudo halt` after %s seconds, or %s hours, because of --seconds-timeout', seconds_timeout, round(int(seconds_timeout) / 60. / 60., 1))
         init = _timeout_init.format(seconds_timeout) + init
     assert not init.startswith('#!'), 'init commands are bash snippets, and should not include a hashbang'
     init = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(init), user)
     disks = [{'boot': True,
               'autoDelete': True,
-              'diskSizeGb': gigs,
-              'initializeParams': {'sourceImage': source_disk_image}}]
+              'initializeParams': {'sourceImage': source_disk_image,
+                                   'diskSizeGb': str(gigs)}}]
     if not no_local_ssd:
         disks += [{'autoDelete': True,
                    'type': 'SCRATCH',
@@ -135,13 +151,14 @@ def main(name,
                                                         'networkTier': network_tier,
                                                         'name': 'External NAT'}]}],
               'serviceAccounts': [{'email': service_account}]}
-    logging.info(yaml.dump(config))
     config['metadata'] = {'items': [{'key': 'startup-script', 'value': init}]}
     if return_config_only:
         print(json.dumps(config))
     else:
+        logging.info(yaml.dump({'config': config}))
         res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
-        logging.info(yaml.dump(res))
+        logging.info(yaml.dump({'result': res}))
+        print(res['targetId'])
 
 if __name__ == '__main__':
     with cli_gcp.setup():

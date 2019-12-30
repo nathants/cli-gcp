@@ -12,7 +12,7 @@ def main(*selectors,
          yes=False):
     assert selectors, 'you just tried to delete all things'
     state = 'running'
-    zones = shell.run('gcp-zones --region', region).splitlines()
+    zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     logging.info('going to delete:\n')
     names = []
     for zone in zones:

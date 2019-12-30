@@ -11,7 +11,7 @@ def main(*selectors,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT']):
     assert end_state in ['running']
-    zones = shell.run('gcp-zones --region', region).splitlines()
+    zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     ready = False
     start = time.time()
     while not ready:

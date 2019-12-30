@@ -13,7 +13,7 @@ def main(*selectors,
          state='all',
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT']):
-    zones = shell.run('gcp-zones --region', region).splitlines()
+    zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, state):
             print(cli_gcp.format(instance))

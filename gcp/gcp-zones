@@ -5,16 +5,17 @@ import cli_gcp
 from util import cached
 
 @cached.disk_memoize(max_age_seconds=60 * 60 * 24)
-def zones(region):
+def zones(project, region):
     res = []
-    for item in cli_gcp.compute().zones().list(project='specto-dev').execute()['items']:
+    for item in cli_gcp.compute().zones().list(project=project).execute()['items']:
         item = item['name']
         if item.startswith(region):
             res.append(item)
     return res
 
-def main(region=os.environ['GCP_REGION']):
-    return zones(region)
+def main(region=os.environ['GCP_REGION'],
+         project=os.environ['GCP_PROJECT']):
+    return zones(project, region)
 
 if __name__ == '__main__':
     with cli_gcp.setup():

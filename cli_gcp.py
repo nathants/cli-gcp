@@ -26,13 +26,13 @@ def format(compute_instance):
         (green if compute_instance['status'].lower() == 'running' else
          cyan if compute_instance['status'].lower() in ['provisioning', 'staging'] else
          red)(compute_instance['name']),
-        compute_instance['zone'].split('/')[-1],
         compute_instance['machineType'].split('/')[-1],
         compute_instance['status'].lower(),
         compute_instance['id'],
         ('preemptible' if compute_instance['scheduling']['preemptible'] else 'ondemand'),
         ','.join(f'{k}={v}' for k, v in sorted(compute_instance.get('labels', {}).items(), key=lambda x: x[0])) or '-',
         tags or '-',
+        compute_instance['zone'].split('/')[-1],
     ])
 
 @schema.check(yields=dict)
