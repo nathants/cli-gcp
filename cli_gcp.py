@@ -1,4 +1,6 @@
 import schema
+import yaml
+import logging
 import warnings
 import shell
 import datetime
@@ -10,6 +12,7 @@ import util.iter
 import util.log
 import googleapiclient.discovery
 from util import cached
+from util.retry import retry
 from util.colors import red, green, cyan # noqa
 
 ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
@@ -25,12 +28,12 @@ def format(compute_instance):
     return ' '.join([
         (green if compute_instance['status'].lower() == 'running' else
          cyan if compute_instance['status'].lower() in ['provisioning', 'staging'] else
-         red)(compute_instance['name']),
+         red)(compute_instance['labels'].get('name', f'missing name label: {compute_instance["name"]}')),
         compute_instance['machineType'].split('/')[-1],
         compute_instance['status'].lower(),
         compute_instance['id'],
         ('preemptible' if compute_instance['scheduling']['preemptible'] else 'ondemand'),
-        ','.join(f'{k}={v}' for k, v in sorted(compute_instance.get('labels', {}).items(), key=lambda x: x[0])) or '-',
+        ','.join(f'{k}={v}' for k, v in sorted(compute_instance.get('labels', {}).items(), key=lambda x: x[0]) if k not in {'name', 'ssh-user'}) or '-',
         tags or '-',
         compute_instance['zone'].split('/')[-1],
     ])
@@ -52,7 +55,7 @@ def ls(project: str, zone: str, selectors: [str], state: str):
         elif ':' not in selectors[0] and '=' not in selectors[0]: # instance name
             fs = []
             for s in selectors:
-                fs += [f'(name = {s})']
+                fs += [f'(labels.name = {s})']
             fs = '(' + ' OR '.join(fs) + ')'
             filter += [fs]
         elif '=' in selectors[0]: # label
@@ -99,3 +102,183 @@ def setup():
             sys.exit(1)
         except:
             raise
+
+def _ensure(name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x):
+    try:
+        res = get()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        res = insert()
+        logging.info(f'{name} created: {config["name"]}')
+    else:
+        logging.info(f'{name} exists: {config["name"]}')
+        config = schemafy(config)
+        _res = resafy(res)
+        for k, v in config.items():
+            logging.info(f'try validate ({name}: {k})')
+            schema.validate({k: v}, {k: _res.get(k)})
+            logging.info(f'{name} is valid for: {k}={v}')
+    logging.info(yaml.dump(res))
+    return res
+
+class ensure:
+    def firewall_allow(project, rule_name, srcs, network_tag, port):
+        config = {"direction": 'INGRESS',
+                  "sourceRanges": srcs,
+                  "allowed": [{"IPProtocol": 'tcp',
+                               "ports": [str(port)]}],
+                  "targetTags": [network_tag],
+                  "name": rule_name}
+        get = compute().firewalls().get(project=project, firewall=config['name']).execute
+        insert = compute().firewalls().insert(project=project, body=config).execute
+        def schemafy(config):
+            config['sourceRanges'] = tuple(config['sourceRanges'])
+            config['allowed'] = tuple(config['allowed'])
+            return config
+        return _ensure('firewall allow', get, insert, config, schemafy)
+
+    def ssl_cert(project, ssl_cert_name, ip_address):
+        get = compute().sslCertificates().get(project=project, sslCertificate=ssl_cert_name).execute
+        schemafy = lambda _: {}
+        with shell.tempdir():
+            shell.run(f'openssl req -x509 -nodes -newkey rsa:2048 -keyout ssl.key -out ssl.crt -days 9999 -subj "/CN={ip_address}/O=Fake Name/C=US"')
+            with open('ssl.crt') as f:
+                crt = f.read()
+            with open('ssl.key') as f:
+                key = f.read()
+            config = {'name': ssl_cert_name,
+                      'certificate': crt,
+                      'privateKey': key}
+            insert = compute().sslCertificates().insert(project=project, body=config).execute
+            return _ensure('ssl cert', get, insert, config, schemafy)
+
+    def global_forwarding_rules(project, forwarding_rules_name, proxy_name, ip_address_url, port):
+        config = {'name': forwarding_rules_name,
+                  'loadBalancingScheme': 'EXTERNAL',
+                  'portRange': port,
+                  'target': proxy_name,
+                  'IPProtocol': 'TCP',
+                  'IPAddress': ip_address_url}
+        get = compute().globalForwardingRules().get(project=project, forwardingRule=config['name']).execute
+        insert = compute().globalForwardingRules().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
+        return _ensure('global forwarding rules', get, insert, config)
+
+    def global_ip_address(project, ip_address_name):
+        config = {'name': ip_address_name,
+                  'ipVersion': 'IPV4'}
+        get = compute().globalAddresses().get(project=project, address=config['name']).execute
+        def insert():
+            compute().globalAddresses().insert(project=project, body=config).execute()
+            def fetch():
+                res = compute().globalAddresses().get(project=project, address=config['name']).execute()
+                assert 'address' in res
+                return res
+            return retry(fetch, times=20, exponent=1.5)()
+        return _ensure('global ip address', get, insert, config)
+
+    def https_proxy(project, https_proxy_name, url_map_url, ssl_cert_url):
+        config = {'name': https_proxy_name,
+                  'sslCertificates': [ssl_cert_url],
+                  'urlMap': url_map_url}
+        get = compute().targetHttpsProxies().get(project=project, targetHttpsProxy=config['name']).execute
+        insert = compute().targetHttpsProxies().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404) # can't be updated before upstream components actually exists
+        return _ensure('https proxy', get, insert, config)
+
+    def http_proxy(project, http_proxy_name, url_map_url):
+        config = {'name': http_proxy_name,
+                  'urlMap': url_map_url}
+        get = compute().targetHttpProxies().get(project=project, targetHttpProxy=config['name']).execute
+        insert = compute().targetHttpProxies().insert(project=project, body=config).execute
+        return _ensure('http proxy', get, insert, config)
+
+    def url_map(project, url_map_name, backend_service_name):
+        config = {'name': url_map_name,
+                  'defaultService': backend_service_name}
+        get = compute().urlMaps().get(project=project, urlMap=config['name']).execute
+        insert = compute().urlMaps().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404) # can't be updated before upstream components actually exists
+        return _ensure('url map', get, insert, config)
+
+    def backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url):
+        instance_group_manager = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=instance_group_manager_name).execute()
+        instance_group_url = instance_group_manager['instanceGroup']
+        backend_service = compute().backendServices().get(project=project, backendService=backend_service_name).execute()
+        backend_config = {"group": instance_group_url,
+                          "balancingMode": balancing_mode}
+        backends = backend_service.get('backends', [])
+        for backend in backends:
+            if backend['group'] == instance_group_url:
+                for k, v in backend_config.items():
+                    schema.validate({k: v}, {k: backend.get(k)})
+                    logging.info(f'backend config is valid for: {k}={v}')
+                return backend_service
+        else:
+            backend_service['backends'] = backend_service.get('backends', []) + [backend_config]
+            logging.info(yaml.dump({'backendService': backend_service}))
+            update = compute().backendServices().update(project=project, backendService=backend_service_name, body=backend_service).execute
+            res = retry(update, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
+            logging.info(yaml.dump({'backendService': res}))
+            return update
+
+    def instance_template(project, instance_template_name, instance_config):
+        config = {'name': instance_template_name,
+                  "properties": instance_config}
+        get = compute().instanceTemplates().get(project=project, instanceTemplate=config['name']).execute
+        insert = compute().instanceTemplates().insert(project=project, body=config).execute
+        def schemafy(config):
+            config = config['properties']
+            config['machineType'] = config['machineType'].split('/')[-1]
+            config['tags']['fingerprint'] = (':optional', str, '')
+            config['tags']['items'] = config['tags']['items'] or (':optional', list, [])
+            config['disks'] = tuple(config['disks'])
+            del config['name']
+            for net in config['networkInterfaces']:
+                val = net['network']
+                def f(x):
+                    return x.endswith(val)
+                net['network'] = f
+            return config
+        def resafy(res):
+            res = res['properties']
+            return res
+        return _ensure('instance template', get, insert, config, schemafy, resafy)
+
+    def health_check(project, health_check_name, health_check_http_path, port):
+        config = {"name": health_check_name,
+                  'type': 'HTTP',
+                  "httpHealthCheck": {"requestPath": health_check_http_path,
+                                      'port': port}}
+        get = compute().healthChecks().get(project=project, healthCheck=config['name']).execute
+        insert = compute().healthChecks().insert(project=project, body=config).execute
+        return _ensure('health check', get, insert, config)
+
+    def backend_service(project, timeout, health_check_url, port_name, backend_service_name):
+        config = {"connectionDraining": {"drainingTimeoutSec": timeout},
+                  "protocol": "HTTP",
+                  "loadBalancingScheme": "EXTERNAL",
+                  "healthChecks": [health_check_url],
+                  "portName": port_name,
+                  "name": backend_service_name,
+                  "timeoutSec": timeout}
+        get = compute().backendServices().get(project=project, backendService=config['name']).execute
+        insert = compute().backendServices().insert(project=project, body=config).execute
+        return _ensure('backend service', get, insert, config)
+
+    def managed_instance_group(project, zone, name, health_check_url, target_size, target_size_surge, instance_template_url, port_name, port, instance_group_manager_name):
+        config = {"autoHealingPolicies": [{"healthCheck": health_check_url,
+                                           "initialDelaySec": 60}],
+                  "targetSize": target_size,
+                  "baseInstanceName": f'{name}-managed-instance',
+                  "updatePolicy": {"type": "PROACTIVE",
+                                   "maxSurge": {"fixed": target_size_surge},
+                                   "minimalAction": "REPLACE",
+                                   "maxUnavailable": {"percent": 50}},
+                  "instanceTemplate": instance_template_url,
+                  "namedPorts": [{"name": port_name, "port": port}],
+                  "name": instance_group_manager_name}
+        get = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=config['name']).execute
+        insert = compute().instanceGroupManagers().insert(project=project, zone=zone, body=config).execute
+        return _ensure('managed instance group', get, insert, config)

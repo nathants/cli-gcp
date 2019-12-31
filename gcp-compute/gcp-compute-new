@@ -98,9 +98,8 @@ def main(name,
          seconds_timeout=60 * 60,
          return_config_only=False,
          ):
-    if not return_config_only:
-        uid = str(uuid.uuid4()).split("-")[0]
-        name = f'{name}-{uid}'
+    uid = str(uuid.uuid4()).split("-")[0]
+    name_uid = f'{name}-{uid}'
     network_tags = network_tag or []
     if ssh_user:
         user = ssh_user
@@ -140,7 +139,8 @@ def main(name,
         assert 1 == label.count('='), f'bad label, should be key=value, not: {label}'
     labels = dict(label.split('=') for label in labels)
     labels['ssh-user'] = user
-    config = {'name': name,
+    labels['name'] = name
+    config = {'name': name_uid,
               'machineType': machine_type,
               'tags': {"items": network_tags},
               'scheduling': {'preemptible': not ondemand},

@@ -1,3 +1,8 @@
 #!/bin/bash
-set -eou pipefail
-gcp-compute-lb-new test -i _http.sh
+set -xeou pipefail
+name=test
+gcp-compute-lb-new $name -i _http.sh
+while true; do
+    curl --fail $(gcp-compute-lb-ip $name) && break
+done
+gcp-compute-lb-rm -y $name

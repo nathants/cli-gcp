@@ -5,125 +5,47 @@ import os
 import shell
 import yaml
 
-def main(project=os.environ['GCP_PROJECT'],
+def main(name=None,
+         project=os.environ['GCP_PROJECT'],
          region=os.environ['GCP_REGION'],):
+    lb_name = name
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
-    # instance template
-    instance_templates = []
-    req = cli_gcp.compute().instanceTemplates().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            del item['properties']['metadata'] # too noisy for ls
-            instance_templates.append(item)
-        req = cli_gcp.compute().instanceTemplates().list_next(req, resp)
-    print(yaml.dump({'instanceTemplates': instance_templates}))
 
-    # backend service
-    backend_services = []
-    req = cli_gcp.compute().backendServices().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            backend_services.append(item)
-        req = cli_gcp.compute().backendServices().list_next(req, resp)
-    print(yaml.dump({'backendServices': backend_services}))
+    c = cli_gcp.compute()
 
-    # instance group manager
-    instance_group_managers = []
-    for zone in zones:
-        req = cli_gcp.compute().instanceGroupManagers().list(project=project, zone=zone)
-        while req:
-            resp = req.execute()
-            for item in resp.get('items', []):
-                instance_group_managers.append(item)
-            req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
-    print(yaml.dump({'instanceGroupManagers': instance_group_managers}))
+    xs = [
+        ('instance templates',        c.instanceTemplates(),     [{}]),
+        ('backend services',          c.backendServices(),       [{}]),
+        ('instance group managers',   c.instanceGroupManagers(), [{'zone': zone} for zone in zones]),
+        ('instance groups',           c.instanceGroups(),        [{'zone': zone} for zone in zones]),
+        ('health checks',             c.healthChecks(),          [{}]),
+        ('ssl certs',                 c.sslCertificates(),       [{}]),
+        ('global forwarding rules',   c.globalForwardingRules(), [{}]),
+        ('target http proxies',       c.targetHttpProxies(),     [{}]),
+        ('target https proxies',      c.targetHttpsProxies(),    [{}]),
+        ('url maps',                  c.urlMaps(),               [{}]),
+        ('firewall allows',           c.urlMaps(),               [{}], lambda x: x['name'].endswith('-firewall-allow-lb-http')),
+        ('global addresses',          c.globalAddresses(),       [{}]),
+        # TODO this is how we can see healthy status of the pool
+        # listManagedInstances(project=*, zone=*, instanceGroupManager=*, order_by=None, maxResults=None, pageToken=None, filter=None)
+    ]
 
-    # instance group
-    instance_groups = []
-    for zone in zones:
-        req = cli_gcp.compute().instanceGroups().list(project=project, zone=zone)
-        while req:
-            resp = req.execute()
-            for item in resp.get('items', []):
-                instance_groups.append(item)
-            req = cli_gcp.compute().instanceGroups().list_next(req, resp)
-    print(yaml.dump({'instanceGroups': instance_groups}))
+    for x in xs:
+        try:
+            name, obj, kws = x
+        except ValueError:
+            name, obj, kws, filter = x
 
-    # health check
-    health_checks = []
-    req = cli_gcp.compute().healthChecks().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            health_checks.append(item)
-        req = cli_gcp.compute().healthChecks().list_next(req, resp)
-    print(yaml.dump({'healthChecks': health_checks}))
-
-    # ssl certs
-    ssl_certs = []
-    req = cli_gcp.compute().sslCertificates().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            ssl_certs.append(item)
-        req = cli_gcp.compute().sslCertificates().list_next(req, resp)
-    print(yaml.dump({'sslCertificates': ssl_certs}))
-
-    # global forwarding rules
-    global_forwarding_rules = []
-    req = cli_gcp.compute().globalForwardingRules().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            global_forwarding_rules.append(item)
-        req = cli_gcp.compute().globalForwardingRules().list_next(req, resp)
-    print(yaml.dump({'globalForwardingRules': global_forwarding_rules}))
-
-    # target https proxies
-    target_https_proxies = []
-    req = cli_gcp.compute().targetHttpsProxies().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            target_https_proxies.append(item)
-        req = cli_gcp.compute().targetHttpsProxies().list_next(req, resp)
-    print(yaml.dump({'targetHttpsProxies': target_https_proxies}))
-
-    # target http proxies
-    target_http_proxies = []
-    req = cli_gcp.compute().targetHttpProxies().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            target_http_proxies.append(item)
-        req = cli_gcp.compute().targetHttpProxies().list_next(req, resp)
-    print(yaml.dump({'targetHttpProxies': target_http_proxies}))
-
-    # url maps
-    url_maps = []
-    req = cli_gcp.compute().urlMaps().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            url_maps.append(item)
-        req = cli_gcp.compute().urlMaps().list_next(req, resp)
-    print(yaml.dump({'urlMaps': url_maps}))
-
-    # firewall allows
-    allows = []
-    req = cli_gcp.compute().firewalls().list(project=project)
-    while req:
-        resp = req.execute()
-        for item in resp.get('items', []):
-            if item['name'].endswith('-firewall-allow-health-checks'):
-                allows.append(item)
-        req = cli_gcp.compute().firewalls().list_next(req, resp)
-    print(yaml.dump({'firewalls': allows}))
-
-    # TODO this is how we can see healthy status of the pool
-    # listManagedInstances(project=*, zone=*, instanceGroupManager=*, order_by=None, maxResults=None, pageToken=None, filter=None)
+        res = []
+        for kw in kws:
+            req = obj.list(project=project, **kw)
+            while req:
+                resp = req.execute()
+                for item in resp.get('items', []):
+                    if not lb_name or item['name'].startswith(f'{lb_name}-'):
+                        res.append(item)
+                req = obj.list_next(req, resp)
+        print(yaml.dump({name: res}).strip())
 
 if __name__ == '__main__':
     with cli_gcp.setup():
