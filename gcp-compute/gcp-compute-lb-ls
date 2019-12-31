@@ -111,6 +111,17 @@ def main(project=os.environ['GCP_PROJECT'],
         req = cli_gcp.compute().urlMaps().list_next(req, resp)
     print(yaml.dump({'urlMaps': url_maps}))
 
+    # firewall allows
+    allows = []
+    req = cli_gcp.compute().firewalls().list(project=project)
+    while req:
+        resp = req.execute()
+        for item in resp.get('items', []):
+            if item['name'].endswith('-firewall-allow-health-checks'):
+                allows.append(item)
+        req = cli_gcp.compute().firewalls().list_next(req, resp)
+    print(yaml.dump({'firewalls': allows}))
+
     # TODO this is how we can see healthy status of the pool
     # listManagedInstances(project=*, zone=*, instanceGroupManager=*, order_by=None, maxResults=None, pageToken=None, filter=None)
 

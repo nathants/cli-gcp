@@ -19,6 +19,15 @@ def main(name,
     if not yes:
         logging.info('going to delete:\n')
 
+        # firewall allows
+        try:
+            res = cli_gcp.compute().firewalls().get(project=project, firewall=f'{name}-firewall-allow-health-checks').execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            logging.info(yaml.dump({'firewalls': res}))
+
         # http forwarding rules
         try:
             res = cli_gcp.compute().globalForwardingRules().get(project=project, forwardingRule=f'{name}-http-forwarding-rules').execute()
@@ -113,7 +122,7 @@ def main(name,
 
         # health check
         try:
-            res = cli_gcp.compute().healthChecks().get(project=project, healthCheck=f'{name}-health-check').execute()
+            res = cli_gcp.compute().healthChecks().get(project=project, healthCheck=f'{name}-health-checks').execute()
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
@@ -125,10 +134,21 @@ def main(name,
 
     ######################### do delete ##################################
 
+    # firewall allows
+    delete = cli_gcp.compute().firewalls().delete(project=project, firewall=f'{name}-firewall-allow-health-checks').execute
+    try:
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}-firewall-allow-health-checks')
+    else:
+        logging.info(yaml.dump(res))
+
     # http forwarding rule
     delete = cli_gcp.compute().globalForwardingRules().delete(project=project, forwardingRule=f'{name}-http-forwarding-rules').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -139,7 +159,7 @@ def main(name,
     # https forwarding rule
     delete = cli_gcp.compute().globalForwardingRules().delete(project=project, forwardingRule=f'{name}-https-forwarding-rules').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -150,7 +170,7 @@ def main(name,
     # https proxy
     delete = cli_gcp.compute().targetHttpsProxies().delete(project=project, targetHttpsProxy=f'{name}-https-proxy').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -161,7 +181,7 @@ def main(name,
     # http proxy
     delete = cli_gcp.compute().targetHttpProxies().delete(project=project, targetHttpProxy=f'{name}-http-proxy').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -172,7 +192,7 @@ def main(name,
     # global address
     delete = cli_gcp.compute().globalAddresses().delete(project=project, address=f'{name}-ip-address').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -183,7 +203,7 @@ def main(name,
     # ssl cert
     delete = cli_gcp.compute().sslCertificates().delete(project=project, sslCertificate=f'{name}-ssl-cert').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -194,7 +214,7 @@ def main(name,
     # url map
     delete = cli_gcp.compute().urlMaps().delete(project=project, urlMap=f'{name}-url-map').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -205,7 +225,7 @@ def main(name,
     # backend service
     delete = cli_gcp.compute().backendServices().delete(project=project, backendService=f'{name}-backend-service').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -217,7 +237,7 @@ def main(name,
     for zone in zones:
         delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=f'{name}-instance-group-manager').execute
         try:
-            res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+            res = retry(delete, times=10, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
@@ -228,7 +248,7 @@ def main(name,
     # instance template
     delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=f'{name}-instance-template').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, times=10, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -237,13 +257,13 @@ def main(name,
         logging.info(yaml.dump(res))
 
     # health check
-    delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=f'{name}-health-check').execute
+    delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=f'{name}-health-checks').execute
     try:
-        res = retry(delete, exponent=1.1, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
+        res = retry(delete, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        logging.info(f'already deleted: {name}-health-check')
+        logging.info(f'already deleted: {name}-health-checks')
     else:
         logging.info(yaml.dump(res))
 

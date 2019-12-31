@@ -28,7 +28,13 @@ def main(name,
     # instance template
     if init:
         init = f'--init "{init}"'
-    config = json.loads(shell.run('gcp-compute-new', f'{name}-instance', '--return-config-only', '--zone', zone, init))
+    firewall_network_tag = f'{name}-allow-health-checks'
+    config = json.loads(shell.run('gcp-compute-new',
+                                  f'{name}-instance',
+                                  '--return-config-only',
+                                  '--zone', zone,
+                                  '--network-tag', firewall_network_tag,
+                                  init))
     config['machineType'] = config['machineType'].split('/')[-1]
     for disk in config['disks']:
         if 'diskType' in disk['initializeParams']:
@@ -38,8 +44,8 @@ def main(name,
     instance_template_url = instance_template.get('targetLink') or instance_template['selfLink'] # target if created, self if already exists
     logging.info(yaml.dump({'instanceTemplate': instance_template}))
 
-    # health check
-    health_check = ensure_health_check(project, {"name": f'{name}-health-check',
+    # health checks
+    health_check = ensure_health_check(project, {"name": f'{name}-health-checks',
                                                  'type': 'HTTP',
                                                  "httpHealthCheck": {"requestPath": health_check,
                                                                      'port': port}})
@@ -51,7 +57,6 @@ def main(name,
     config = {"autoHealingPolicies": [{"healthCheck": health_check_url,
                                        "initialDelaySec": 60}],
               "targetSize": target_size,
-              # "targetPools": ["A String"],
               "baseInstanceName": f'{name}-managed-instance',
               "updatePolicy": {"type": "PROACTIVE",
                                "maxSurge": {"fixed": target_size_surge},
@@ -76,8 +81,7 @@ def main(name,
     backend_service_url = backend_service.get('targetLink') or backend_service['selfLink'] # target if created, self if already exists
     logging.info(yaml.dump({'backendService': backend_service}))
 
-    has_instance_group = ensure_backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url)
-    logging.info(yaml.dump({'hasGroup': has_instance_group}))
+    ensure_backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url)
 
     url_map_name = f'{name}-url-map'
     url_map = ensure_url_map(project, url_map_name, backend_service_url)
@@ -95,23 +99,42 @@ def main(name,
     https_proxy_url = https_proxy.get('targetLink') or https_proxy['selfLink'] # target if created, self if already exists
 
     https_forwarding_rules_name = f'{name}-https-forwarding-rules'
-    ensure_global_forwarding_rules(project, https_forwarding_rules_name, https_proxy_url, ip_address, '443-443')
+    ensure_global_forwarding_rules(project, https_forwarding_rules_name, https_proxy_url, ip_address['address'], '443-443')
 
     http_proxy_name = f'{name}-http-proxy'
     http_proxy = ensure_http_proxy(project, http_proxy_name, url_map_url)
     http_proxy_url = http_proxy.get('targetLink') or http_proxy['selfLink'] # target if created, self if already exists
 
     http_forwarding_rules_name = f'{name}-http-forwarding-rules'
-    ensure_global_forwarding_rules(project, http_forwarding_rules_name, http_proxy_url, ip_address, '80-80')
+    ensure_global_forwarding_rules(project, http_forwarding_rules_name, http_proxy_url, ip_address['address'], '80-80')
 
-    firewall_network = 'default'
-    # gcloud compute firewall-rules create fw-allow-health-checks \
-    #     --network NETWORK_NAME \
-    #     --action ALLOW \
-    #     --direction INGRESS \
-    #     --source-ranges 35.191.0.0/16,130.211.0.0/22 \
-    #     --target-tags allow-health-checks \
-    #     --rules tcp
+    firewall_rule_name = f'{name}-firewall-allow-health-checks'
+    official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']
+    ensure_firewall_allow(project, firewall_rule_name, official_gcp_ips, firewall_network_tag, port)
+
+def ensure_firewall_allow(project, rule_name, srcs, network_tag, port):
+    config = {"direction": 'INGRESS',
+              "sourceRanges": srcs,
+              "allowed": [{"IPProtocol": 'tcp',
+                           "ports": [str(port)]}],
+              "targetTags": [network_tag],
+              "name": rule_name}
+    try:
+        res = cli_gcp.compute().firewalls().get(project=project, firewall=config['name']).execute()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        res = cli_gcp.compute().firewalls().insert(project=project, body=config).execute()
+        logging.info(f'firewall allow created: {config["name"]}')
+    else:
+        logging.info(f'firewall allow exists: {config["name"]}')
+        config['sourceRanges'] = tuple(config['sourceRanges'])
+        config['allowed'] = tuple(config['allowed'])
+        for k, v in config.items():
+            schema.validate({k: v}, {k: res.get(k)})
+            logging.info(f'firewall allow is valid for: {k}={v}')
+    logging.info(yaml.dump(res))
+    return res
 
 def ensure_ssl_cert(project, ssl_cert_name, ip_address):
     with shell.tempdir():
@@ -133,30 +156,31 @@ def ensure_ssl_cert(project, ssl_cert_name, ip_address):
         else:
             logging.info(f'ssl cert exists: {config["name"]}')
             # for k, v in config.items():
-                # assert schema.is_valid({k: v}, {k: res.get(k)}), f'ssl cert config mismatch: get({k}) = {res.get(k)} != {v}'
+                # schema.validate({k: v}, {k: res.get(k)})
                 # logging.info(f'ssl cert is valid for: {k}={v}')
         logging.info(yaml.dump(res))
         return res
 
-def ensure_global_forwarding_rules(project, forwarding_rules_name, proxy_name, ip_address, port):
+def ensure_global_forwarding_rules(project, forwarding_rules_name, proxy_name, ip_address_url, port):
     config = {'name': forwarding_rules_name,
+              'loadBalancingScheme': 'EXTERNAL',
               'portRange': port,
               'target': proxy_name,
-              'IPAddress': ip_address,
-              # 'ipVersion': 'IPV4'
-              }
+              'IPProtocol': 'TCP',
+              'IPAddress': ip_address_url}
     try:
         res = cli_gcp.compute().globalForwardingRules().get(project=project, forwardingRule=config['name']).execute()
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        res = cli_gcp.compute().globalForwardingRules().insert(project=project, body=config).execute()
-        logging.info(f'global forwarding rule created: {config["name"]}')
+        insert = cli_gcp.compute().globalForwardingRules().insert(project=project, body=config).execute
+        res = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
+        logging.info(f'forwarding rule created: {config["name"]}')
     else:
-        logging.info(f'global forwarding rule exists: {config["name"]}')
-        # for k, v in config.items():
-            # assert schema.is_valid({k: v}, {k: res.get(k)}), f'global forwarding rule config mismatch: get({k}) = {res.get(k)} != {v}'
-            # logging.info(f'global forwarding rule is valid for: {k}={v}')
+        logging.info(f'forwarding rule exists: {config["name"]}')
+        for k, v in config.items():
+            schema.validate({k: v}, {k: res.get(k)})
+            logging.info(f'forwarding rule is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
 
@@ -168,12 +192,13 @@ def ensure_global_ip_address(project, ip_address_name):
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        res = cli_gcp.compute().globalAddresses().insert(project=project, body=config).execute()
+        cli_gcp.compute().globalAddresses().insert(project=project, body=config).execute()
+        res = cli_gcp.compute().globalAddresses().get(project=project, address=config['name']).execute() # need to fetch it to get the actual address?
         logging.info(f'global ip address created: {config["name"]}')
     else:
         logging.info(f'global ip address exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'global ip address config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'global ip address is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
@@ -193,7 +218,7 @@ def ensure_https_proxy(project, https_proxy_name, url_map_url, ssl_cert_url):
     else:
         logging.info(f'https proxy exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'https proxy config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'https proxy is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
@@ -211,7 +236,7 @@ def ensure_http_proxy(project, http_proxy_name, url_map_url):
     else:
         logging.info(f'http proxy exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'http proxy config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'http proxy is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
@@ -224,12 +249,13 @@ def ensure_url_map(project, url_map_name, backend_service_name):
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        res = cli_gcp.compute().urlMaps().insert(project=project, body=config).execute()
+        insert = cli_gcp.compute().urlMaps().insert(project=project, body=config).execute
+        res = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
         logging.info(f'url map created: {config["name"]}')
     else:
         logging.info(f'url map exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'url map config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'url map is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
@@ -244,15 +270,16 @@ def ensure_backend_has_instance_group(project, zone, backend_service_name, insta
     for backend in backends:
         if backend['group'] == instance_group_url:
             for k, v in backend_config.items():
-                assert schema.is_valid({k: v}, {k: backend.get(k)}), f'backend config config mismatch: get({k}) = {backend.get(k)} != {v}'
+                schema.validate({k: v}, {k: backend.get(k)})
                 logging.info(f'backend config is valid for: {k}={v}')
-            break
+            return backend_service
     else:
         backend_service['backends'] = backend_service.get('backends', []) + [backend_config]
         logging.info(yaml.dump({'backendService': backend_service}))
         update = cli_gcp.compute().backendServices().update(project=project, backendService=backend_service_name, body=backend_service).execute
         res = retry(update, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
         logging.info(yaml.dump({'backendService': res}))
+        return update
 
 def ensure_instance_template(project, config):
     try:
@@ -277,7 +304,7 @@ def ensure_instance_template(project, config):
         _res = res['properties']
         for k, v in config.items():
             if k not in {'name'}:
-                assert schema.is_valid({k: v}, {k: _res.get(k)}), f'instance template config mismatch: get({k}) = {_res.get(k)} != {v}'
+                schema.validate({k: v}, {k: _res.get(k)})
                 logging.info(f'instance template is valid for: {k}={v}')
     return res
 
@@ -288,12 +315,12 @@ def ensure_health_check(project, config):
         if e.resp.status != 404:
             raise
         res = cli_gcp.compute().healthChecks().insert(project=project, body=config).execute()
-        logging.info(f'health check created: {config["name"]}')
+        logging.info(f'health checks created: {config["name"]}')
     else:
-        logging.info(f'health check exists: {config["name"]}')
+        logging.info(f'health checks exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'health check config mismatch: get({k}) = {res.get(k)} != {v}'
-            logging.info(f'health check is valid for: {k}={v}')
+            schema.validate({k: v}, {k: res.get(k)})
+            logging.info(f'health checks is valid for: {k}={v}')
     return res
 
 def ensure_backend_service(project, config):
@@ -307,7 +334,7 @@ def ensure_backend_service(project, config):
     else:
         logging.info(f'backend service exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'backend service config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'backend service is valid for: {k}={v}')
     return res
 
@@ -322,7 +349,7 @@ def ensure_managed_instance_group(project, zone, config):
     else:
         logging.info(f'managed instance group exists: {config["name"]}')
         for k, v in config.items():
-            assert schema.is_valid({k: v}, {k: res.get(k)}), f'managed instance group config mismatch: get({k}) = {res.get(k)} != {v}'
+            schema.validate({k: v}, {k: res.get(k)})
             logging.info(f'managed instance group is valid for: {k}={v}')
     return res
 
