@@ -17,7 +17,7 @@ def main(name,
          init='',
          port=8080,
          target_size=3,
-         target_size_surge=10,
+         target_size_max=10,
          health_check_http_path="/health"):
 
     instance_template_name = f'{name}-instance-template'
@@ -35,49 +35,46 @@ def main(name,
         if 'diskType' in disk['initializeParams']:
             disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
     instance_template = cli_gcp.ensure.instance_template(project, instance_template_name, instance_config)
-    instance_template_url = instance_template.get('targetLink') or instance_template['selfLink'] # target if created, self if already exists
     logging.info(yaml.dump({'instanceTemplate': instance_template}))
 
     health_check_name = f'{name}-health-checks'
     health_check = cli_gcp.ensure.health_check(project, health_check_name, health_check_http_path, port)
-    health_check_url = health_check.get('targetLink') or health_check['selfLink'] # target if created, self if already exists
     logging.info(yaml.dump({'healthCheck': health_check}))
 
     instance_group_manager_name = f'{name}-instance-group-manager'
-    instance_group_manager = cli_gcp.ensure.managed_instance_group(project, zone, name, health_check_url, target_size, target_size_surge, instance_template_url, port_name, port, instance_group_manager_name)
+    instance_name = f'{name}-managed-instance'
+    instance_group_manager = cli_gcp.ensure.managed_instance_group(project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
     logging.info(yaml.dump({'instanceGroup': instance_group_manager}))
 
+    autoscaler_name = f'{name}-autoscaler'
+    cli_gcp.ensure.autoscaler(project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
+
     backend_service_name = f'{name}-backend-service'
-    backend_service = cli_gcp.ensure.backend_service(project, timeout, health_check_url, port_name, backend_service_name)
-    backend_service_url = backend_service.get('targetLink') or backend_service['selfLink'] # target if created, self if already exists
+    backend_service = cli_gcp.ensure.backend_service(project, timeout, cli_gcp.url(health_check), port_name, backend_service_name)
     logging.info(yaml.dump({'backendService': backend_service}))
 
-    cli_gcp.ensure.backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url)
+    cli_gcp.ensure.backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
 
     url_map_name = f'{name}-url-map'
-    url_map = cli_gcp.ensure.url_map(project, url_map_name, backend_service_url)
-    url_map_url = url_map.get('targetLink') or url_map['selfLink'] # target if created, self if already exists
+    url_map = cli_gcp.ensure.url_map(project, url_map_name, cli_gcp.url(backend_service))
 
     ip_address_name = f'{name}-ip-address'
     ip_address = cli_gcp.ensure.global_ip_address(project, ip_address_name)
 
     ssl_cert_name = f'{name}-ssl-cert'
     ssl_cert = cli_gcp.ensure.ssl_cert(project, ssl_cert_name, ip_address['address'])
-    ssl_cert_url = ssl_cert.get('targetLink') or ssl_cert['selfLink'] # target if created, self if already exists
 
     https_proxy_name = f'{name}-https-proxy'
-    https_proxy = cli_gcp.ensure.https_proxy(project, https_proxy_name, url_map_url, ssl_cert_url)
-    https_proxy_url = https_proxy.get('targetLink') or https_proxy['selfLink'] # target if created, self if already exists
+    https_proxy = cli_gcp.ensure.https_proxy(project, https_proxy_name, cli_gcp.url(url_map), cli_gcp.url(ssl_cert))
 
     https_forwarding_rules_name = f'{name}-https-forwarding-rules'
-    cli_gcp.ensure.global_forwarding_rules(project, https_forwarding_rules_name, https_proxy_url, ip_address['address'], '443-443')
+    cli_gcp.ensure.global_forwarding_rules(project, https_forwarding_rules_name, cli_gcp.url(https_proxy), ip_address['address'], '443-443')
 
     http_proxy_name = f'{name}-http-proxy'
-    http_proxy = cli_gcp.ensure.http_proxy(project, http_proxy_name, url_map_url)
-    http_proxy_url = http_proxy.get('targetLink') or http_proxy['selfLink'] # target if created, self if already exists
+    http_proxy = cli_gcp.ensure.http_proxy(project, http_proxy_name, cli_gcp.url(url_map))
 
     http_forwarding_rules_name = f'{name}-http-forwarding-rules'
-    cli_gcp.ensure.global_forwarding_rules(project, http_forwarding_rules_name, http_proxy_url, ip_address['address'], '80-80')
+    cli_gcp.ensure.global_forwarding_rules(project, http_forwarding_rules_name, cli_gcp.url(http_proxy), ip_address['address'], '80-80')
 
     firewall_rule_name = f'{name}-firewall-allow-health-checks'
     official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']

@@ -16,6 +16,7 @@ def main(name=None,
     xs = [
         ('instance templates',        c.instanceTemplates(),     [{}]),
         ('backend services',          c.backendServices(),       [{}]),
+        ('autoscalers',               c.autoscalers(),           [{'zone': zone} for zone in zones]),
         ('instance group managers',   c.instanceGroupManagers(), [{'zone': zone} for zone in zones]),
         ('instance groups',           c.instanceGroups(),        [{'zone': zone} for zone in zones]),
         ('health checks',             c.healthChecks(),          [{}]),

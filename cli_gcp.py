@@ -21,6 +21,9 @@ ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
 def compute():
     return googleapiclient.discovery.build('compute', 'v1')
 
+def url(obj):
+    return obj.get('targetLink') or obj['selfLink'] # target if insert(), self if get()
+
 def format(compute_instance):
     tags = ','.join(compute_instance.get('tags', {}).get('items', []))
     if tags:
@@ -267,13 +270,13 @@ class ensure:
         insert = compute().backendServices().insert(project=project, body=config).execute
         return _ensure('backend service', get, insert, config)
 
-    def managed_instance_group(project, zone, name, health_check_url, target_size, target_size_surge, instance_template_url, port_name, port, instance_group_manager_name):
+    def managed_instance_group(project, zone, instance_name, health_check_url, target_size, target_size_max, instance_template_url, port_name, port, instance_group_manager_name):
         config = {"autoHealingPolicies": [{"healthCheck": health_check_url,
                                            "initialDelaySec": 60}],
                   "targetSize": target_size,
-                  "baseInstanceName": f'{name}-managed-instance',
+                  "baseInstanceName": instance_name,
                   "updatePolicy": {"type": "PROACTIVE",
-                                   "maxSurge": {"fixed": target_size_surge},
+                                   "maxSurge": {"fixed": target_size_max},
                                    "minimalAction": "REPLACE",
                                    "maxUnavailable": {"percent": 50}},
                   "instanceTemplate": instance_template_url,
@@ -282,3 +285,14 @@ class ensure:
         get = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=config['name']).execute
         insert = compute().instanceGroupManagers().insert(project=project, zone=zone, body=config).execute
         return _ensure('managed instance group', get, insert, config)
+
+    def autoscaler(project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
+        config = {"autoscalingPolicy": {"maxNumReplicas": target_size_max,
+                                        "coolDownPeriodSec": 30,
+                                        "cpuUtilization": {"utilizationTarget": 0.5},
+                                        "minNumReplicas": target_size},
+                  "target": instance_group_manager_url,
+                  "name": autoscaler_name}
+        get = compute().autoscalers().get(project=project, zone=zone, autoscaler=config['name']).execute
+        insert = compute().autoscalers().insert(project=project, zone=zone, body=config).execute
+        return _ensure('autoscaler', get, insert, config)

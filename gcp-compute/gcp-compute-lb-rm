@@ -26,7 +26,8 @@ def main(name,
           ('url map',               c.urlMaps(),               {'project': project, 'urlMap':           f'{name}-url-map'}),
           ('backend service',       c.backendServices(),       {'project': project, 'backendService':   f'{name}-backend-service'})]
     for zone in zones:
-        xs += [('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{name}-instance-group-manager', 'zone': zone}),
+        xs += [('autoscalers',            c.autoscalers(),           {'project': project, 'autoscaler':             f'{name}-autoscaler', 'zone': zone}),
+               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{name}-instance-group-manager', 'zone': zone}),
                ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{name}-instance-group-manager', 'zone': zone})] # TODO why do we have to call delete twice for this?
     xs += [('instance template',        c.instanceTemplates(),  {'project': project, 'instanceTemplate': f'{name}-instance-template'}),
            ('health check',             c.healthChecks(),       {'project': project, 'healthCheck':      f'{name}-health-checks'})]
