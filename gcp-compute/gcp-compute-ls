@@ -3,13 +3,14 @@ import shell
 import os
 import argh
 import cli_gcp
-
+import sys
 
 def main(*selectors,
          state='all',
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT']):
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
+    print(cli_gcp.format_header(), file=sys.stderr)
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, state):
             print(cli_gcp.format(instance))

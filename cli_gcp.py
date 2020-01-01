@@ -24,6 +24,18 @@ def compute():
 def url(obj):
     return obj.get('targetLink') or obj['selfLink'] # target if insert(), self if get()
 
+def format_header():
+    return ' '.join([
+        'name',
+        'type',
+        'status',
+        'id',
+        'kind',
+        'labels',
+        'tags',
+        'zone',
+    ])
+
 def format(compute_instance):
     tags = ','.join(compute_instance.get('tags', {}).get('items', []))
     if tags:
