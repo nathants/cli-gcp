@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+import os
+import argh
+import cli_gcp
+
+def main(name, project=os.environ['GCP_PROJECT']):
+    res = cli_gcp.compute().images().getFromFamily(project=project, family=name).execute()
+    print(res['name'])
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)

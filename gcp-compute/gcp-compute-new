@@ -68,11 +68,12 @@ bash /tmp/timeout.poweroff.sh &> /dev/null </dev/null &
 disown %1
 """
 
-@cached.disk_memoize(max_age_seconds=60 * 60 * 24)
-def get_image(image):
+def get_image(image, project):
     image_projects = {'ubuntu': 'ubuntu-os-cloud',
                       'arch': 'arch-linux-gce'}
-    image_response = cli_gcp.compute().images().getFromFamily(project=image_projects[image.split('-')[0]], family=image).execute()
+    key = image.split('-')[0]
+    image_project = image_projects.get(key, project)
+    image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
     return image_response['selfLink']
 
 @argh.arg('-n', '--network-tag', action='append')
@@ -108,7 +109,7 @@ def main(name,
     else:
         user = 'ubuntu'
     logging.info(f'ssh-user: {user}')
-    source_disk_image = get_image(image)
+    source_disk_image = get_image(image, project)
     machine_type = f"zones/{zone}/machineTypes/{type}"
     ssd_type = f"projects/{project}/zones/{zone}/diskTypes/local-ssd"
     if os.path.isfile(init):

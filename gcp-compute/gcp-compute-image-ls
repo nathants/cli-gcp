@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import os
+import argh
+import cli_gcp
+
+def main(name=None, project=os.environ['GCP_PROJECT']):
+    kw = {}
+    if name:
+        kw['filter'] = f'family = {name}'
+    req = cli_gcp.compute().images().list(project=project, orderBy='creationTimestamp desc', **kw)
+    while req:
+        resp = req.execute()
+        for item in resp.get('items', []):
+            print(item['family'], item['name'])
+        req = cli_gcp.compute().images().list_next(req, resp)
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)

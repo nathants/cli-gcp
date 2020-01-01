@@ -11,12 +11,11 @@ def main(*selectors,
          project=os.environ['GCP_PROJECT'],
          yes=False):
     assert selectors, 'you just tried to delete all things'
-    state = 'running'
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     logging.info('going to delete:\n')
     names = []
     for zone in zones:
-        for instance in cli_gcp.ls(project, zone, selectors, state):
+        for instance in cli_gcp.ls(project, zone, selectors, 'all'):
             names += [instance['name']]
             print(cli_gcp.format(instance))
     if not yes:
