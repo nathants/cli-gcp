@@ -17,6 +17,16 @@ from util.colors import red, green, cyan # noqa
 
 ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
 
+def ip(instance):
+    assert len(instance['networkInterfaces']) == 1, yaml.dump(instance)
+    assert len(instance['networkInterfaces'][0]['accessConfigs']) == 1, yaml.dump(instance)
+    return instance['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+
+
+def ip_private(instance):
+    assert len(instance['networkInterfaces']) == 1, yaml.dump(instance)
+    return instance['networkInterfaces'][0]['networkIP']
+
 @cached.func
 def compute():
     return googleapiclient.discovery.build('compute', 'v1')
@@ -48,7 +58,7 @@ def format(compute_instance):
         compute_instance['status'].lower(),
         compute_instance['id'],
         ('preemptible' if compute_instance['scheduling']['preemptible'] else 'ondemand'),
-        ','.join(f'{k}={v}' for k, v in sorted(compute_instance.get('labels', {}).items(), key=lambda x: x[0]) if k not in {'name', 'ssh-user'}) or '-',
+        ','.join(f'{k}={v}' for k, v in sorted(compute_instance.get('labels', {}).items(), key=lambda x: x[0]) if k not in {'name', 'local-user'}) or '-',
         tags or '-',
         compute_instance['zone'].split('/')[-1],
     ])

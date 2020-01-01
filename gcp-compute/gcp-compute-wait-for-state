@@ -14,15 +14,18 @@ def main(*selectors,
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     ready = False
     start = time.time()
+    ids = set()
     while not ready:
         ready = True
         for zone in zones:
             for instance in cli_gcp.ls(project, zone, selectors, 'all'):
+                ids.add(instance['id'])
                 if instance['status'].lower() != end_state:
                     logging.info(f'waiting for: {instance["name"]} {instance["status"]}')
                     ready = False
         time.sleep(5)
         assert time.time() - start < 60 * 5
+    return list(ids)
 
 if __name__ == '__main__':
     with cli_gcp.setup():

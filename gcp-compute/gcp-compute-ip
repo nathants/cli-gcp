@@ -11,9 +11,7 @@ def main(*selectors,
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, 'running'):
-            assert len(instance['networkInterfaces']) == 1, yaml.dump(instance)
-            assert len(instance['networkInterfaces'][0]['accessConfigs']) == 1, yaml.dump(instance)
-            print(instance['networkInterfaces'][0]['accessConfigs'][0]['natIP'])
+            print(cli_gcp.ip(instance))
 
 if __name__ == '__main__':
     with cli_gcp.setup():

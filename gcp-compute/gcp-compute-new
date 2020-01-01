@@ -76,39 +76,38 @@ def get_image(image, project):
     image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
     return image_response['selfLink']
 
-@argh.arg('-n', '--network-tag', action='append')
+@argh.arg('--tag', action='append')
+@argh.arg('-n', '--num')
+@argh.arg('label', help='k=v pairs, may be specified multiple times')
 def main(name,
-         *labels,
-         network_tag=None,
+         *label,
+         tag: 'may be specified multiple times' = None,
          type=os.environ['GCP_COMPUTE_TYPE'],
          zone=os.environ['GCP_ZONE'],
          project=os.environ['GCP_PROJECT'],
          service_account='default',
+         num: 'number of instances' = 1,
          image='ubuntu-1804-lts',
          ondemand=False,
          gigs=64,
          no_local_ssd=False,
          network_tier='STANDARD',
-         ssh_user: (
-             'what ssh user to use for this instance. '
-             'this is ami specific, if not provided '
-             'will try to guess based on ami choice, '
-             'finally defaulting to "ubuntu".')        = None,
          init=_default_init,
          local_ssd=True,
-         seconds_timeout=60 * 60,
-         return_config_only=False,
-         ):
-    uid = str(uuid.uuid4()).split("-")[0]
-    name_uid = f'{name}-{uid}'
-    network_tags = network_tag or []
-    if ssh_user:
-        user = ssh_user
-    elif image == 'arch':
-        user = 'root'
+         seconds_timeout: (
+             'will `sudo poweroff` after this many '
+             'seconds. calls `bash /tmp/timeout.sh` '
+             'if it exists and waits 60 seconds for '
+             'it to exit before calling `sudo poweroff`. '
+             'set to 0 to disable.') = 60 * 60,
+         return_config_only=False):
+    labels = label
+    tags = tag or []
+    if image == 'arch':
+        local_user = 'root'
     else:
-        user = 'ubuntu'
-    logging.info(f'ssh-user: {user}')
+        local_user = 'ubuntu'
+    logging.info(f'local_user: {local_user}')
     source_disk_image = get_image(image, project)
     machine_type = f"zones/{zone}/machineTypes/{type}"
     ssd_type = f"projects/{project}/zones/{zone}/diskTypes/local-ssd"
@@ -125,7 +124,7 @@ def main(name,
         logging.info('this instance will `sudo poweroff` after %s seconds, or %s hours, because of --seconds-timeout', seconds_timeout, round(int(seconds_timeout) / 60. / 60., 1))
         init = _timeout_init.format(seconds_timeout) + init
     assert not init.startswith('#!'), 'init commands are bash snippets, and should not include a hashbang'
-    init = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(init), user)
+    init = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(init), local_user)
     disks = [{'boot': True,
               'autoDelete': True,
               'initializeParams': {'sourceImage': source_disk_image,
@@ -139,11 +138,11 @@ def main(name,
         assert ',' not in label, f'bad label, cannot contain comma: {label}'
         assert 1 == label.count('='), f'bad label, should be key=value, not: {label}'
     labels = dict(label.split('=') for label in labels)
-    labels['ssh-user'] = user
     labels['name'] = name
-    config = {'name': name_uid,
+    labels['local-user'] = local_user
+    config = {'name': f'{name}-{str(uuid.uuid4()).split("-")[0]}',
               'machineType': machine_type,
-              'tags': {"items": network_tags},
+              'tags': {"items": tags},
               'scheduling': {'preemptible': not ondemand},
               'labels': labels,
               'disks': disks,
@@ -156,10 +155,14 @@ def main(name,
     if return_config_only:
         print(json.dumps(config))
     else:
-        logging.info(yaml.dump({'config': config}))
-        res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
-        logging.info(yaml.dump({'result': res}))
-        print(res['targetId'])
+        ids = []
+        for _ in range(num):
+            config['name'] = f'{name}-{str(uuid.uuid4()).split("-")[0]}'
+            logging.info(yaml.dump({'config': config}))
+            res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
+            logging.info(yaml.dump({'result': res}))
+            ids += [res['targetId']]
+        return ids
 
 if __name__ == '__main__':
     with cli_gcp.setup():

@@ -16,7 +16,7 @@ def main(*selectors,
     instances = []
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, 'all'):
-            instances += [zone, instance['name']]
+            instances += [(zone, instance['name'])]
             print(cli_gcp.format(instance))
     if not yes:
         logging.info('\nwould you like to proceed? y/n\n')

@@ -28,7 +28,7 @@ def main(name,
                                            f'{name}-instance',
                                            '--return-config-only',
                                            '--zone', zone,
-                                           '--network-tag', firewall_network_tag,
+                                           '--tag', firewall_network_tag,
                                            init))
     instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
     for disk in instance_config['disks']:
