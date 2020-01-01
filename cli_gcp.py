@@ -60,6 +60,8 @@ def ls(project: str, zone: str, selectors: [str], state: str):
     if state != 'all':
         filter += [f'(status = {state.upper()})']
     tags = []
+    ip_privs = []
+    ips = []
     if selectors:
         if selectors[0].isdigit(): # instance id
             fs = []
@@ -67,6 +69,12 @@ def ls(project: str, zone: str, selectors: [str], state: str):
                 fs += [f'(id = {s})']
             fs = '(' + ' OR '.join(fs) + ')'
             filter += [fs]
+        elif selectors[0].startswith('10.'): # ip priv
+            for s in selectors:
+                ip_privs.append(s)
+        elif selectors[0].count('.') == 3: # ip
+            for s in selectors:
+                ips.append(s)
         elif ':' not in selectors[0] and '=' not in selectors[0]: # instance name
             fs = []
             for s in selectors:
@@ -81,7 +89,6 @@ def ls(project: str, zone: str, selectors: [str], state: str):
             fs = ' AND '.join(fs)
             filter += [fs]
         elif ':' in selectors[0]: # tag
-            fs = []
             for s in selectors:
                 k, v = s.split(':')
                 tags += [v]
@@ -94,7 +101,9 @@ def ls(project: str, zone: str, selectors: [str], state: str):
         resp = req.execute()
         for item in resp.get('items', []):
             instance_tags = item.get('tags', {}).get('items', [])
-            if not tags or all(tag in instance_tags for tag in tags):
+            if ((not tags or all(tag in instance_tags for tag in tags))
+                or (not ip_privs or item['networkInterfaces'][0]['networkIP'] in ip_privs)
+                or (not ips or item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] in ips)):
                 yield item
         req = compute().instances().list_next(req, resp)
 
