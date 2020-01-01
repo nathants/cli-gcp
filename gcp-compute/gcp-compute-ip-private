@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import shell
-import yaml
 import os
 import argh
 import cli_gcp

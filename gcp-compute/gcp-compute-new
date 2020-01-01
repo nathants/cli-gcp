@@ -7,7 +7,6 @@ import logging
 import os
 import argh
 import cli_gcp
-from util import cached
 
 _default_init = 'date > /tmp/cloudinit.log'
 
