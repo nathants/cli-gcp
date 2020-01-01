@@ -78,7 +78,7 @@ def main(name,
 
     firewall_rule_name = f'{name}-firewall-allow-health-checks'
     official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']
-    cli_gcp.ensure.firewall_allow(project, firewall_rule_name, official_gcp_ips, firewall_network_tag, port)
+    cli_gcp.ensure.firewall_allow(project, firewall_rule_name, official_gcp_ips, [firewall_network_tag], port)
 
 if __name__ == '__main__':
     with cli_gcp.setup():

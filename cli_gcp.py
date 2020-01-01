@@ -119,27 +119,47 @@ def _ensure(name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x)
         config = schemafy(config)
         _res = resafy(res)
         for k, v in config.items():
-            logging.info(f'try validate ({name}: {k})')
-            schema.validate({k: v}, {k: _res.get(k)})
+            schema.validate({(name, k): v}, {(name, k): _res.get(k)})
             logging.info(f'{name} is valid for: {k}={v}')
     logging.info(yaml.dump(res))
     return res
 
 class ensure:
-    def firewall_allow(project, rule_name, srcs, network_tag, port):
-        config = {"direction": 'INGRESS',
-                  "sourceRanges": srcs,
-                  "allowed": [{"IPProtocol": 'tcp',
-                               "ports": [str(port)]}],
-                  "targetTags": [network_tag],
+    def firewall_allow(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000):
+        assert direction in {'ingress', 'egress'}
+        config = {"direction": direction.upper(),
+                  'priority': priority,
+                  "sourceRanges": source_ranges,
+                  "allowed": [{"IPProtocol": proto,
+                               "ports": [str(port)] if port else []}],
+                  "targetTags": network_tags,
                   "name": rule_name}
         get = compute().firewalls().get(project=project, firewall=config['name']).execute
         insert = compute().firewalls().insert(project=project, body=config).execute
         def schemafy(config):
             config['sourceRanges'] = tuple(config['sourceRanges'])
             config['allowed'] = tuple(config['allowed'])
+            config['targetTags'] = config['targetTags'] or None
+            config['allowed'][0]['ports'] = config['allowed'][0].get('ports') or (':optional', list, [])
             return config
         return _ensure('firewall allow', get, insert, config, schemafy)
+
+    def firewall_deny(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000):
+        assert direction in {'ingress', 'egress'}
+        config = {"direction": direction.upper(),
+                  'priority': priority,
+                  "sourceRanges": source_ranges,
+                  "denied": [{"IPProtocol": proto,
+                              "ports": [str(port)] if port else []}],
+                  "targetTags": network_tags,
+                  "name": rule_name}
+        get = compute().firewalls().get(project=project, firewall=config['name']).execute
+        insert = compute().firewalls().insert(project=project, body=config).execute
+        def schemafy(config):
+            config['sourceRanges'] = tuple(config['sourceRanges'])
+            config['denied'] = tuple(config['denied'])
+            return config
+        return _ensure('firewall denied', get, insert, config, schemafy)
 
     def ssl_cert(project, ssl_cert_name, ip_address):
         get = compute().sslCertificates().get(project=project, sslCertificate=ssl_cert_name).execute

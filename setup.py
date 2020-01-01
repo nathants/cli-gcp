@@ -26,7 +26,6 @@ scripts = [os.path.abspath(os.path.join(service, script))
 
 dst_path = os.path.dirname(os.path.abspath(sys.executable))
 for src in scripts:
-    print(src)
     name = os.path.basename(src)
     dst = os.path.join(dst_path, name)
     try:

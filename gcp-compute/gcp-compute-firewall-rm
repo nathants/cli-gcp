@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import shell
+import logging
+import yaml
+import os
+import argh
+import cli_gcp
+from util.retry import retry
+import googleapiclient.errors
+
+def main(name,
+         project=os.environ['GCP_PROJECT'],
+         yes=False):
+    if not yes:
+        logging.info('going to delete:\n')
+        logging.info(yaml.dump(cli_gcp.compute().firewalls().get(project=project, firewall=name).execute()))
+        logging.info('\nwould you like to proceed? y/n\n')
+        assert shell.getch() == 'y', 'abort'
+
+    delete = cli_gcp.compute().firewalls().delete(project=project, firewall=name).execute
+    try:
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {name}')
+    else:
+        logging.info(yaml.dump({name: res}))
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
