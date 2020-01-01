@@ -13,16 +13,16 @@ def main(*selectors,
     assert selectors, 'you just tried to delete all things'
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     logging.info('going to delete:\n')
-    names = []
+    instances = []
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, 'all'):
-            names += [instance['name']]
+            instances += [zone, instance['name']]
             print(cli_gcp.format(instance))
     if not yes:
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
     failures = []
-    for name in names:
+    for zone, name in instances:
         try:
             cli_gcp.compute().instances().delete(project=project, zone=zone, instance=name).execute()
         except:
