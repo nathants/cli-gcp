@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+import argh
+import cli_gcp
+import logging
+import os
+import pool.thread
+import shell
+import subprocess
+import sys
+import util.colors
+import util.strings
+
+def _remote_cmd(cmd, stdin, instance_id):
+    return f"""
+    fail_msg="failed to run cmd on instance: {instance_id}"
+    mkdir -p ~/.cmds || echo $fail_msg
+    path=~/.cmds/$(uuidgen)
+    input=$path.input
+    echo {util.strings.b64_encode(cmd)}   | base64 -d > $path  || echo $fail_msg
+    echo {util.strings.b64_encode(stdin)} | base64 -d > $input || echo $fail_msg
+    cat $input | bash $path
+    code=$?
+    if [ $code != 0 ]; then
+        echo $fail_msg
+        exit $code
+    fi
+    """
+
+def _make_callback(instance, quiet, append=None, no_stream=False):
+    name = instance['labels']['name'] + ': ' + cli_gcp.ip(instance) + ': '
+    def f(_, line):
+        val = (line if quiet else name + line).replace('\r', '')
+        if append is not None:
+            append.append(val)
+        if not no_stream:
+            logging.info(val)
+    return f
+
+def main(*selectors,
+         region=os.environ['GCP_REGION'],
+         project=os.environ['GCP_PROJECT'],
+         stdin: 'stdin value to be provided to remote cmd' = '',
+         quiet: 'less output' = False,
+         no_stream: 'dont stream to stderr, only output to stdout' = False,
+         cmd: 'cmd to run on remote host, or - to read from stdin' = '',
+         yes: 'no prompt to proceed' = False,
+         max_threads: 'max ssh connections' = 20,
+         timeout: 'seconds before ssh cmd considered failed' = None,
+         no_tty: 'when backgrounding a process, you dont want a tty' = False,
+         key: 'speficy ssh key' = None,
+         echo: 'echo some info about what was run on which hosts' = False,
+         batch_mode: 'operate like there are many instances, even if only one' = False,
+         prefixed: 'when running against a single host, should streaming output be prefixed with name and ip' = False,
+         error_message: 'error message to print for a failed host, something like: {id} {name} {ip} {ipv4_private} failed' = '',
+         user: 'what user to login as, otherwise an "user" tag is expected on the instance' = ''):
+    whoami = shell.run('whoami')
+    pool.thread._size = max_threads
+    assert selectors, 'you must specify some selectors'
+    instances = []
+    zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
+    for zone in zones:
+        instances += cli_gcp.ls(project, zone, selectors, 'running')
+    assert instances, 'didnt find any instances'
+    if cmd == '-':
+        cmd = sys.stdin.read()
+    if cmd and 'set -e' not in cmd:
+        if cmd.startswith('#!'):
+            lines = cmd.splitlines()
+            lines.insert(1, 'set -euo pipefail')
+            cmd = '\n'.join(lines)
+        else:
+            cmd = 'set -euo pipefail\n' + cmd
+    assert (cmd and instances) or len(instances) == 1, 'must specify --cmd to target multiple instances'
+    if not (quiet and yes):
+        for i in instances:
+            logging.info(cli_gcp.format(i))
+    ssh_cmd = ('ssh'
+               + (f' -i {key} ' if key else '')
+               + (' -tt ' if not no_tty or not cmd else ' -T ')
+               + cli_gcp.ssh_args
+               ).split()
+    if echo:
+        logging.info(f'gcp-compute-ssh running against selectors: {selectors}, with cmd: {cmd}')
+    if timeout:
+        ssh_cmd = ['timeout', f'{timeout}s'] + ssh_cmd
+    make_ssh_cmd = lambda i: ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(i), _remote_cmd(cmd, stdin, i['id'])]
+    login = len(instances) == 1 and not cmd
+    if not yes and not login:
+        logging.info('\nwould you like to proceed? y/n\n')
+        assert shell.getch() == 'y', 'abort'
+    if cmd and len(instances) > 1 or batch_mode:
+        failures = []
+        successes = []
+        results = []
+        def run(instance):
+            resp = shell.run(*make_ssh_cmd(instance),
+                             callback=_make_callback(instance, quiet, results, no_stream),
+                             echo=False,
+                             raw_cmd=True,
+                             stream=False,
+                             warn=True,
+                             hide_stderr=quiet)
+            if resp['exitcode'] != 0:
+                if error_message:
+                    print(error_message.format(id=instance['id'],
+                                               ip=cli_gcp.ip(instance),
+                                               ipv4_private=cli_gcp.ip_private(instance),
+                                               name=instance['labels']['name']),
+                          flush=True)
+                msg = util.colors.red('failure: ') + instance['labels']['name'] + ': ' + instance['id']
+                failures.append(msg)
+            else:
+                msg = util.colors.green('success: ') + instance['labels']['name'] + ': ' + instance['id']
+                successes.append(msg)
+            if not quiet:
+                logging.info(msg)
+        list(pool.thread.map(run, instances))
+        # TODO would be really nice to see these results, plus unknowns:, when ^C to exit early
+        if not quiet:
+            logging.info('\nresults:')
+            for msg in successes + failures:
+                logging.info(' ' + msg)
+            logging.info('\ntotals:')
+            logging.info(util.colors.green(' successes: ') + str(len(successes)))
+            logging.info(util.colors.red(' failures: ') + str(len(failures)))
+        for result in results:
+            print(result)
+        assert not failures
+    elif cmd:
+        res = shell.run(*make_ssh_cmd(instances[0]),
+                        echo=False,
+                        stream=not prefixed and not no_stream,
+                        hide_stderr=quiet,
+                        raw_cmd=True,
+                        callback=_make_callback(instances[0], quiet, None, no_stream) if prefixed else None,
+                        warn=True,
+                        quiet=True)
+        if res['exitcode'] != 0:
+            sys.exit(res['exitcode'])
+        return res['stdout']
+    else:
+        try:
+            subprocess.check_call(ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(instances[0])])
+        except subprocess.CalledProcessError:
+            sys.exit(1)
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
