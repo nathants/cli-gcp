@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import shell
+import os
+import argh
+import cli_gcp
+
+
+def main(ip=shell.run('curl --fail checkip.amazonaws.com') + '/32',
+         project=os.environ['GCP_PROJECT'],
+         yes=False):
+    shell.check_call(
+        'gcp-compute-firewall-rm',
+        '-y' if yes else '',
+        f'authorize-ssh-{ip.replace(".", "-").replace("/", "--")}',
+    )
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
