@@ -53,7 +53,7 @@ def main(*selectors,
          prefixed: 'when running against a single host, should streaming output be prefixed with name and ip' = False,
          error_message: 'error message to print for a failed host, something like: {id} {name} {ip} {ipv4_private} failed' = '',
          user: 'what user to login as, otherwise an "user" tag is expected on the instance' = ''):
-    whoami = shell.run('whoami')
+    whoami = shell.run('whoami', echo=False)
     pool.thread._size = max_threads
     assert selectors, 'you must specify some selectors'
     instances = []
