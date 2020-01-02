@@ -156,9 +156,10 @@ def _ensure(name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x)
     return res
 
 class ensure:
-    def firewall_allow(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000):
+    def firewall_allow(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
         assert direction in {'ingress', 'egress'}
         config = {"direction": direction.upper(),
+                  'description': description,
                   'priority': priority,
                   "sourceRanges": source_ranges,
                   "allowed": [{"IPProtocol": proto,
@@ -175,9 +176,10 @@ class ensure:
             return config
         return _ensure('firewall allow', get, insert, config, schemafy)
 
-    def firewall_deny(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000):
+    def firewall_deny(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
         assert direction in {'ingress', 'egress'}
         config = {"direction": direction.upper(),
+                  'description': description,
                   'priority': priority,
                   "sourceRanges": source_ranges,
                   "denied": [{"IPProtocol": proto,

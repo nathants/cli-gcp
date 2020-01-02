@@ -8,12 +8,11 @@ import logging
 def main(ip=shell.run('curl --fail checkip.amazonaws.com') + '/32',
          project=os.environ['GCP_PROJECT']):
     logging.info(f'using ip: {ip}')
-    shell.run(
-        'gcp-compute-firewall-add',
-        f'authorize-ssh-{ip.replace(".", "-").replace("/", "--")}',
-        '-s', f'{ip}',
-        '--port 22',
-    )
+    whoami = shell.run('whoami')
+    shell.run('gcp-compute-firewall-add',
+              f'allow-ssh-{whoami}',
+              f'--source-range {ip}',
+              '--port 22')
 
 if __name__ == '__main__':
     with cli_gcp.setup():

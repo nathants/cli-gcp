@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shell
 import os
 import argh
 import cli_gcp
@@ -12,6 +13,7 @@ def main(name,
          mode='allow',
          proto='tcp',
          port='8080',
+         description='',
          direction='ingress'):
     network_tags = network_tag or []
     assert source_range.count('.') == 3 and source_range.count('/') == 1 and source_range.replace('.', '').replace('/', '').isdigit(), f'bad source range, should be like: 0.0.0.0/0, not: {source_range}'
@@ -21,7 +23,7 @@ def main(name,
         fn = cli_gcp.ensure.firewall_allow
     elif mode == 'deny':
         fn = cli_gcp.ensure.firewall_deny
-    fn(project, name, [source_range], network_tags, port, proto, direction, priority)
+    fn(project, name, [source_range], network_tags, port, proto, direction, priority, description)
 
 if __name__ == '__main__':
     with cli_gcp.setup():
