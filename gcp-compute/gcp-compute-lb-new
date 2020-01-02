@@ -18,6 +18,7 @@ def main(name,
          port=8080,
          target_size=3,
          target_size_max=10,
+         verbose=False,
          health_check_http_path="/health"):
 
     instance_template_name = f'{name}-instance-template'
@@ -34,51 +35,47 @@ def main(name,
     for disk in instance_config['disks']:
         if 'diskType' in disk['initializeParams']:
             disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
-    instance_template = cli_gcp.ensure.instance_template(project, instance_template_name, instance_config)
-    logging.info(yaml.dump({'instanceTemplate': instance_template}))
+    instance_template = cli_gcp.ensure.instance_template(verbose, project, instance_template_name, instance_config)
 
     health_check_name = f'{name}-health-checks'
-    health_check = cli_gcp.ensure.health_check(project, health_check_name, health_check_http_path, port)
-    logging.info(yaml.dump({'healthCheck': health_check}))
+    health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
 
     instance_group_manager_name = f'{name}-instance-group-manager'
     instance_name = f'{name}-managed-instance'
-    instance_group_manager = cli_gcp.ensure.managed_instance_group(project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
-    logging.info(yaml.dump({'instanceGroup': instance_group_manager}))
+    instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
 
     autoscaler_name = f'{name}-autoscaler'
-    cli_gcp.ensure.autoscaler(project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
+    cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
 
     backend_service_name = f'{name}-backend-service'
-    backend_service = cli_gcp.ensure.backend_service(project, timeout, cli_gcp.url(health_check), port_name, backend_service_name)
-    logging.info(yaml.dump({'backendService': backend_service}))
+    backend_service = cli_gcp.ensure.backend_service(verbose, project, timeout, cli_gcp.url(health_check), port_name, backend_service_name)
 
-    cli_gcp.ensure.backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
+    cli_gcp.ensure.backend_has_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
 
     url_map_name = f'{name}-url-map'
-    url_map = cli_gcp.ensure.url_map(project, url_map_name, cli_gcp.url(backend_service))
+    url_map = cli_gcp.ensure.url_map(verbose, project, url_map_name, cli_gcp.url(backend_service))
 
     ip_address_name = f'{name}-ip-address'
-    ip_address = cli_gcp.ensure.global_ip_address(project, ip_address_name)
+    ip_address = cli_gcp.ensure.global_ip_address(verbose, project, ip_address_name)
 
     ssl_cert_name = f'{name}-ssl-cert'
-    ssl_cert = cli_gcp.ensure.ssl_cert(project, ssl_cert_name, ip_address['address'])
+    ssl_cert = cli_gcp.ensure.ssl_cert(verbose, project, ssl_cert_name, ip_address['address'])
 
     https_proxy_name = f'{name}-https-proxy'
-    https_proxy = cli_gcp.ensure.https_proxy(project, https_proxy_name, cli_gcp.url(url_map), cli_gcp.url(ssl_cert))
+    https_proxy = cli_gcp.ensure.https_proxy(verbose, project, https_proxy_name, cli_gcp.url(url_map), cli_gcp.url(ssl_cert))
 
     https_forwarding_rules_name = f'{name}-https-forwarding-rules'
-    cli_gcp.ensure.global_forwarding_rules(project, https_forwarding_rules_name, cli_gcp.url(https_proxy), ip_address['address'], '443-443')
+    cli_gcp.ensure.global_forwarding_rules(verbose, project, https_forwarding_rules_name, cli_gcp.url(https_proxy), ip_address['address'], '443-443')
 
     http_proxy_name = f'{name}-http-proxy'
-    http_proxy = cli_gcp.ensure.http_proxy(project, http_proxy_name, cli_gcp.url(url_map))
+    http_proxy = cli_gcp.ensure.http_proxy(verbose, project, http_proxy_name, cli_gcp.url(url_map))
 
     http_forwarding_rules_name = f'{name}-http-forwarding-rules'
-    cli_gcp.ensure.global_forwarding_rules(project, http_forwarding_rules_name, cli_gcp.url(http_proxy), ip_address['address'], '80-80')
+    cli_gcp.ensure.global_forwarding_rules(verbose, project, http_forwarding_rules_name, cli_gcp.url(http_proxy), ip_address['address'], '80-80')
 
     firewall_rule_name = f'{name}-firewall-allow-health-checks'
     official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']
-    cli_gcp.ensure.firewall_allow(project, firewall_rule_name, official_gcp_ips, [firewall_network_tag], port)
+    cli_gcp.ensure.firewall_allow(verbose, project, firewall_rule_name, official_gcp_ips, [firewall_network_tag], port)
 
 if __name__ == '__main__':
     with cli_gcp.setup():

@@ -80,6 +80,7 @@ def get_image(image, project):
 @argh.arg('label', help='k=v pairs, may be specified multiple times')
 def main(name,
          *label,
+         verbose = False,
          tag: 'may be specified multiple times' = None,
          type=os.environ['GCP_COMPUTE_TYPE'],
          zone=os.environ['GCP_ZONE'],
@@ -157,9 +158,11 @@ def main(name,
         ids = []
         for _ in range(num):
             config['name'] = f'{name}-{str(uuid.uuid4()).split("-")[0]}'
-            logging.info(yaml.dump({'config': config}))
+            if verbose:
+                logging.info(yaml.dump({'config': config}))
             res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
-            logging.info(yaml.dump({'result': res}))
+            if verbose:
+                logging.info(yaml.dump({'result': res}))
             ids += [res['targetId']]
         return ids
 

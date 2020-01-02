@@ -137,7 +137,7 @@ def setup():
         except:
             raise
 
-def _ensure(name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x):
+def _ensure(verbose, name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x):
     try:
         res = get()
     except googleapiclient.errors.HttpError as e:
@@ -152,11 +152,12 @@ def _ensure(name, get, insert, config, schemafy=lambda x: x, resafy=lambda x: x)
         for k, v in config.items():
             schema.validate({(name, k): v}, {(name, k): _res.get(k)})
             logging.info(f'{name} is valid for: {k}={v}')
-    logging.info(yaml.dump(res))
+    if verbose:
+        logging.info(yaml.dump(res))
     return res
 
 class ensure:
-    def firewall_allow(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
+    def firewall_allow(verbose, project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
         assert direction in {'ingress', 'egress'}
         config = {"direction": direction.upper(),
                   'description': description,
@@ -174,9 +175,9 @@ class ensure:
             config['targetTags'] = config['targetTags'] or None
             config['allowed'][0]['ports'] = config['allowed'][0].get('ports') or (':optional', list, [])
             return config
-        return _ensure('firewall allow', get, insert, config, schemafy)
+        return _ensure(verbose, 'firewall allow', get, insert, config, schemafy)
 
-    def firewall_deny(project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
+    def firewall_deny(verbose, project, rule_name, source_ranges, network_tags, port=None, proto='tcp', direction='ingress', priority=1000, description=''):
         assert direction in {'ingress', 'egress'}
         config = {"direction": direction.upper(),
                   'description': description,
@@ -192,9 +193,9 @@ class ensure:
             config['sourceRanges'] = tuple(config['sourceRanges'])
             config['denied'] = tuple(config['denied'])
             return config
-        return _ensure('firewall denied', get, insert, config, schemafy)
+        return _ensure(verbose, 'firewall denied', get, insert, config, schemafy)
 
-    def ssl_cert(project, ssl_cert_name, ip_address):
+    def ssl_cert(verbose, project, ssl_cert_name, ip_address):
         get = compute().sslCertificates().get(project=project, sslCertificate=ssl_cert_name).execute
         schemafy = lambda _: {}
         with shell.tempdir():
@@ -207,9 +208,9 @@ class ensure:
                       'certificate': crt,
                       'privateKey': key}
             insert = compute().sslCertificates().insert(project=project, body=config).execute
-            return _ensure('ssl cert', get, insert, config, schemafy)
+            return _ensure(verbose, 'ssl cert', get, insert, config, schemafy)
 
-    def global_forwarding_rules(project, forwarding_rules_name, proxy_name, ip_address_url, port):
+    def global_forwarding_rules(verbose, project, forwarding_rules_name, proxy_name, ip_address_url, port):
         config = {'name': forwarding_rules_name,
                   'loadBalancingScheme': 'EXTERNAL',
                   'portRange': port,
@@ -219,9 +220,9 @@ class ensure:
         get = compute().globalForwardingRules().get(project=project, forwardingRule=config['name']).execute
         insert = compute().globalForwardingRules().insert(project=project, body=config).execute
         insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
-        return _ensure('global forwarding rules', get, insert, config)
+        return _ensure(verbose, 'global forwarding rules', get, insert, config)
 
-    def global_ip_address(project, ip_address_name):
+    def global_ip_address(verbose, project, ip_address_name):
         config = {'name': ip_address_name,
                   'ipVersion': 'IPV4'}
         get = compute().globalAddresses().get(project=project, address=config['name']).execute
@@ -232,33 +233,33 @@ class ensure:
                 assert 'address' in res
                 return res
             return retry(fetch, times=20, exponent=1.5)()
-        return _ensure('global ip address', get, insert, config)
+        return _ensure(verbose, 'global ip address', get, insert, config)
 
-    def https_proxy(project, https_proxy_name, url_map_url, ssl_cert_url):
+    def https_proxy(verbose, project, https_proxy_name, url_map_url, ssl_cert_url):
         config = {'name': https_proxy_name,
                   'sslCertificates': [ssl_cert_url],
                   'urlMap': url_map_url}
         get = compute().targetHttpsProxies().get(project=project, targetHttpsProxy=config['name']).execute
         insert = compute().targetHttpsProxies().insert(project=project, body=config).execute
         insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404) # can't be updated before upstream components actually exists
-        return _ensure('https proxy', get, insert, config)
+        return _ensure(verbose, 'https proxy', get, insert, config)
 
-    def http_proxy(project, http_proxy_name, url_map_url):
+    def http_proxy(verbose, project, http_proxy_name, url_map_url):
         config = {'name': http_proxy_name,
                   'urlMap': url_map_url}
         get = compute().targetHttpProxies().get(project=project, targetHttpProxy=config['name']).execute
         insert = compute().targetHttpProxies().insert(project=project, body=config).execute
-        return _ensure('http proxy', get, insert, config)
+        return _ensure(verbose, 'http proxy', get, insert, config)
 
-    def url_map(project, url_map_name, backend_service_name):
+    def url_map(verbose, project, url_map_name, backend_service_name):
         config = {'name': url_map_name,
                   'defaultService': backend_service_name}
         get = compute().urlMaps().get(project=project, urlMap=config['name']).execute
         insert = compute().urlMaps().insert(project=project, body=config).execute
         insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404) # can't be updated before upstream components actually exists
-        return _ensure('url map', get, insert, config)
+        return _ensure(verbose, 'url map', get, insert, config)
 
-    def backend_has_instance_group(project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url):
+    def backend_has_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name, balancing_mode, health_check_url):
         instance_group_manager = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=instance_group_manager_name).execute()
         instance_group_url = instance_group_manager['instanceGroup']
         backend_service = compute().backendServices().get(project=project, backendService=backend_service_name).execute()
@@ -273,13 +274,17 @@ class ensure:
                 return backend_service
         else:
             backend_service['backends'] = backend_service.get('backends', []) + [backend_config]
-            logging.info(yaml.dump({'backendService': backend_service}))
+            if verbose:
+                logging.info(yaml.dump({'backendService': backend_service}))
             update = compute().backendServices().update(project=project, backendService=backend_service_name, body=backend_service).execute
             res = retry(update, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
-            logging.info(yaml.dump({'backendService': res}))
+            if verbose:
+                logging.info(yaml.dump({'backendService': res}))
+            else:
+                logging.info(f'added: {backend_service_name}')
             return update
 
-    def instance_template(project, instance_template_name, instance_config):
+    def instance_template(verbose, project, instance_template_name, instance_config):
         config = {'name': instance_template_name,
                   "properties": instance_config}
         get = compute().instanceTemplates().get(project=project, instanceTemplate=config['name']).execute
@@ -300,18 +305,18 @@ class ensure:
         def resafy(res):
             res = res['properties']
             return res
-        return _ensure('instance template', get, insert, config, schemafy, resafy)
+        return _ensure(verbose, 'instance template', get, insert, config, schemafy, resafy)
 
-    def health_check(project, health_check_name, health_check_http_path, port):
+    def health_check(verbose, project, health_check_name, health_check_http_path, port):
         config = {"name": health_check_name,
                   'type': 'HTTP',
                   "httpHealthCheck": {"requestPath": health_check_http_path,
                                       'port': port}}
         get = compute().healthChecks().get(project=project, healthCheck=config['name']).execute
         insert = compute().healthChecks().insert(project=project, body=config).execute
-        return _ensure('health check', get, insert, config)
+        return _ensure(verbose, 'health check', get, insert, config)
 
-    def backend_service(project, timeout, health_check_url, port_name, backend_service_name):
+    def backend_service(verbose, project, timeout, health_check_url, port_name, backend_service_name):
         config = {"connectionDraining": {"drainingTimeoutSec": timeout},
                   "protocol": "HTTP",
                   "loadBalancingScheme": "EXTERNAL",
@@ -321,9 +326,9 @@ class ensure:
                   "timeoutSec": timeout}
         get = compute().backendServices().get(project=project, backendService=config['name']).execute
         insert = compute().backendServices().insert(project=project, body=config).execute
-        return _ensure('backend service', get, insert, config)
+        return _ensure(verbose, 'backend service', get, insert, config)
 
-    def managed_instance_group(project, zone, instance_name, health_check_url, target_size, target_size_max, instance_template_url, port_name, port, instance_group_manager_name):
+    def managed_instance_group(verbose, project, zone, instance_name, health_check_url, target_size, target_size_max, instance_template_url, port_name, port, instance_group_manager_name):
         config = {"autoHealingPolicies": [{"healthCheck": health_check_url,
                                            "initialDelaySec": 60}],
                   "targetSize": target_size,
@@ -337,9 +342,9 @@ class ensure:
                   "name": instance_group_manager_name}
         get = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=config['name']).execute
         insert = compute().instanceGroupManagers().insert(project=project, zone=zone, body=config).execute
-        return _ensure('managed instance group', get, insert, config)
+        return _ensure(verbose, 'managed instance group', get, insert, config)
 
-    def autoscaler(project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
+    def autoscaler(verbose, project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
         config = {"autoscalingPolicy": {"maxNumReplicas": target_size_max,
                                         "coolDownPeriodSec": 30,
                                         "cpuUtilization": {"utilizationTarget": 0.5},
@@ -348,4 +353,4 @@ class ensure:
                   "name": autoscaler_name}
         get = compute().autoscalers().get(project=project, zone=zone, autoscaler=config['name']).execute
         insert = compute().autoscalers().insert(project=project, zone=zone, body=config).execute
-        return _ensure('autoscaler', get, insert, config)
+        return _ensure(verbose, 'autoscaler', get, insert, config)

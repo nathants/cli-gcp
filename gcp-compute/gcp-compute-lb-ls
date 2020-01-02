@@ -6,6 +6,7 @@ import shell
 import yaml
 
 def main(name=None,
+         verbose=False,
          project=os.environ['GCP_PROJECT'],
          region=os.environ['GCP_REGION'],):
     lb_name = name
@@ -46,7 +47,11 @@ def main(name=None,
                     if not lb_name or item['name'].startswith(f'{lb_name}-'):
                         res.append(item)
                 req = obj.list_next(req, resp)
-        print(yaml.dump({name: res}).strip())
+        if verbose:
+            print(yaml.dump({name: res}).strip())
+        else:
+            for r in res:
+                print(res['name'])
 
 if __name__ == '__main__':
     with cli_gcp.setup():
