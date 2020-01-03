@@ -16,10 +16,10 @@ def main(*selectors,
     instances = []
     for zone in zones:
         instances += cli_gcp.ls(project, zone, selectors, 'all')
+    logging.info('going to wait for ssh on the following instances:')
+    for i in instances:
+        logging.info(' ' + cli_gcp.format(i))
     if not yes:
-        logging.info('going to wait for ssh on the following instances:')
-        for i in instances:
-            logging.info(' ' + cli_gcp.format(i))
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
     ready = False

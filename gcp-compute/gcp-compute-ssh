@@ -10,7 +10,7 @@ import sys
 import util.colors
 import util.strings
 
-def _remote_cmd(cmd, stdin, instance_id):
+def _remote_cmd(local_user, cmd, stdin, instance_id):
     return f"""
     fail_msg="failed to run cmd on instance: {instance_id}"
     mkdir -p ~/.cmds || echo $fail_msg
@@ -18,7 +18,7 @@ def _remote_cmd(cmd, stdin, instance_id):
     input=$path.input
     echo {util.strings.b64_encode(cmd)}   | base64 -d > $path  || echo $fail_msg
     echo {util.strings.b64_encode(stdin)} | base64 -d > $input || echo $fail_msg
-    cat $input | bash $path
+    sudo -u {local_user} bash -c "cat $input | bash $path"
     code=$?
     if [ $code != 0 ]; then
         echo $fail_msg
@@ -71,7 +71,7 @@ def main(*selectors,
         else:
             cmd = 'set -euo pipefail\n' + cmd
     assert (cmd and instances) or len(instances) == 1, 'must specify --cmd to target multiple instances'
-    if not (quiet and yes):
+    if not quiet:
         for i in instances:
             logging.info(cli_gcp.format(i))
     ssh_cmd = ('ssh'
@@ -83,7 +83,7 @@ def main(*selectors,
         logging.info(f'gcp-compute-ssh running against selectors: {selectors}, with cmd: {cmd}')
     if timeout:
         ssh_cmd = ['timeout', f'{timeout}s'] + ssh_cmd
-    make_ssh_cmd = lambda i: ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(i), _remote_cmd(cmd, stdin, i['id'])]
+    make_ssh_cmd = lambda i: ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(i), _remote_cmd(i['labels']['local-user'], cmd, stdin, i['id'])]
     login = len(instances) == 1 and not cmd
     if not yes and not login:
         logging.info('\nwould you like to proceed? y/n\n')
@@ -140,7 +140,8 @@ def main(*selectors,
         return res['stdout']
     else:
         try:
-            subprocess.check_call(ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(instances[0])])
+            local_user = instances[0]['labels']['local-user']
+            subprocess.check_call(ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(instances[0])] + [f'sudo su -l {local_user}'])
         except subprocess.CalledProcessError:
             sys.exit(1)
 

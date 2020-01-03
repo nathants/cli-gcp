@@ -13,7 +13,7 @@ def main(*selectors,
          yes=False,
          seconds: 'after this many seconds, terminate any instances not ready and return the id of ready instances' = 0):
     assert selectors, 'you cannot wait for all things, specify some selectors'
-    ids = shell.run('gcp-compute-wait-for-state -y', *selectors).splitlines()
+    ids = shell.run('gcp-compute-wait-for-state -y', *selectors, stream=True).splitlines()
     instances = []
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     for zone in zones:

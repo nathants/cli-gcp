@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shell
 import uuid
 import yaml
 import json
@@ -26,6 +27,8 @@ sudo mkfs -t ext4 ${disk}p1
 sudo mkdir -p /mnt
 sudo mount -o discard ${disk}p1 /mnt
 sudo chown -R $(whoami):$(whoami) /mnt
+sudo chmod -R ugo+rw /mnt
+sudo chmod -R ugo+rw /home/ubuntu
 """
 
 _timeout_init = """
@@ -140,6 +143,7 @@ def main(name,
     labels = dict(label.split('=') for label in labels)
     labels['name'] = name
     labels['local-user'] = local_user
+    labels['owner'] = shell.run('whoami')
     config = {'name': f'{name}-{str(uuid.uuid4()).split("-")[0]}',
               'machineType': machine_type,
               'tags': {"items": tags},

@@ -6,10 +6,10 @@ import argh
 import cli_gcp
 
 def main(name, project=os.environ['GCP_PROJECT'], yes=False):
+    logging.info('going to delete:\n')
+    req = cli_gcp.compute().images().get(project=project, image=name).execute()
+    logging.info(req['name'])
     if not yes:
-        logging.info('going to delete:\n')
-        req = cli_gcp.compute().images().get(project=project, image=name).execute()
-        logging.info(req['name'])
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
     cli_gcp.compute().images().delete(project=project, image=name).execute()

@@ -19,7 +19,6 @@ def main(*selectors,
     if not yes:
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
-
     failures = []
     for zone, name in instances:
         try:

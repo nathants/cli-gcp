@@ -12,10 +12,9 @@ def main(name,
          region=os.environ['GCP_REGION'],
          zone=os.environ['GCP_ZONE'],
          timeout=30,
-         port_name="http-port",
          balancing_mode='UTILIZATION',
          init='',
-         port=8080,
+         port: 'http port on backend services' = 8080,
          target_size=3,
          target_size_max=10,
          verbose=False,
@@ -39,6 +38,8 @@ def main(name,
 
     health_check_name = f'{name}-health-checks'
     health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
+
+    port_name = "http-port"
 
     instance_group_manager_name = f'{name}-instance-group-manager'
     instance_name = f'{name}-managed-instance'

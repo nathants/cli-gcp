@@ -33,19 +33,20 @@ def main(name,
     xs += [('instance template',        c.instanceTemplates(),  {'project': project, 'instanceTemplate': f'{name}-instance-template'}),
            ('health check',             c.healthChecks(),       {'project': project, 'healthCheck':      f'{name}-health-checks'})]
 
-    if not yes:
-        logging.info('going to delete:\n')
-        for name, obj, kw in xs:
-            try:
-                res = obj.get(**kw).execute()
-            except googleapiclient.errors.HttpError as e:
-                if e.resp.status != 404:
-                    raise
+    logging.info('going to delete:\n')
+    for name, obj, kw in xs:
+        try:
+            res = obj.get(**kw).execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+        else:
+            if verbose:
+                logging.info(yaml.dump({name: res}))
             else:
-                if verbose:
-                    logging.info(yaml.dump({name: res}))
-                else:
-                    logging.info(f'{name}')
+                logging.info(f'{name}')
+
+    if not yes:
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
 
