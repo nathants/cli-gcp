@@ -42,7 +42,7 @@ def main(*selectors,
          stdin: 'stdin value to be provided to remote cmd' = '',
          quiet: 'less output' = False,
          no_stream: 'dont stream to stderr, only output to stdout' = False,
-         cmd: 'cmd to run on remote host, or - to read from stdin' = '',
+         cmd: 'cmd to run on remote host, - to read from stdin, or script file path' = '',
          yes: 'no prompt to proceed' = False,
          max_threads: 'max ssh connections' = 20,
          timeout: 'seconds before ssh cmd considered failed' = None,
@@ -63,6 +63,9 @@ def main(*selectors,
     assert instances, 'didnt find any instances'
     if cmd == '-':
         cmd = sys.stdin.read()
+    if os.path.isfile(cmd):
+        with open(cmd) as f:
+            cmd = f.read()
     if cmd and 'set -e' not in cmd:
         if cmd.startswith('#!'):
             lines = cmd.splitlines()

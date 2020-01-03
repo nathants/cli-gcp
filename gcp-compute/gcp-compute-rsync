@@ -44,7 +44,7 @@ def main(src,
                 _dst = host + dst if dst.startswith(':') else dst
                 try:
                     shell.run('rsync -avhc',
-                              os.environ.get('AWS_EC2_RSYNC_OPTIONS', ''),
+                              os.environ.get('GCP_RSYNC_OPTIONS', ''),
                               f'-e "ssh {cli_gcp.ssh_args}"',
                               _src,
                               _dst,
