@@ -23,7 +23,8 @@ def main(name,
         fn = cli_gcp.ensure.firewall_allow
     elif mode == 'deny':
         fn = cli_gcp.ensure.firewall_deny
-    fn(project, name, [source_range], network_tags, port, proto, direction, priority, description)
+    verbose = True
+    fn(verbose, project, name, [source_range], network_tags, port, proto, direction, priority, description)
 
 if __name__ == '__main__':
     with cli_gcp.setup():
