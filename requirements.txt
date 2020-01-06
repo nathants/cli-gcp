@@ -1,3 +1,4 @@
-git+https://github.com/nathants/py-util@d63445ba286ef165ce09c2a4b896dacd5a3bfa1d
-git+https://github.com/nathants/py-pool@31dae540c2b7d581cb81301b0e5e72fdfe233dff
-git+https://github.com/nathants/py-shell@2101f972f13b6c2b73ed476ac0a3a7793285fa07
+git+https://github.com/nathants/py-util@5f71bc2b8906fab8bb51eebdbec4de29fe9c70c1
+git+https://github.com/nathants/py-pool@bac4eef1d11dd8447ca79fa91ece395134ed6774
+git+https://github.com/nathants/py-shell@4ac5a94d01ef107cf725692dcc0390230d833fdf
+git+https://github.com/nathants/py-schema@6f88b4497127f57fb04fddbfa31a65b35ec1c2ac
