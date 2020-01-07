@@ -18,7 +18,8 @@ def _remote_cmd(local_user, cmd, stdin, instance_id):
     input=$path.input
     echo {util.strings.b64_encode(cmd)}   | base64 -d > $path  || echo $fail_msg
     echo {util.strings.b64_encode(stdin)} | base64 -d > $input || echo $fail_msg
-    sudo -u {local_user} bash -c "cat $input | bash $path"
+    export HOME=/home/{local_user}
+    sudo -u {local_user} bash -c "cd /home/{local_user}; cat $input | bash $path"
     code=$?
     if [ $code != 0 ]; then
         echo $fail_msg
