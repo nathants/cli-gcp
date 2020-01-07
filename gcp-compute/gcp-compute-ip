@@ -8,9 +8,12 @@ def main(*selectors,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT']):
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
+    found = False
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, 'running'):
+            found = True
             print(cli_gcp.ip(instance))
+    assert found, 'didnt find any instances for those selectors'
 
 if __name__ == '__main__':
     with cli_gcp.setup():

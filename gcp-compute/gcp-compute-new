@@ -79,10 +79,12 @@ def get_image(image, project):
     return image_response['selfLink']
 
 @argh.arg('--tag', action='append')
+@argh.arg('--scope', action='append')
 @argh.arg('-n', '--num')
 @argh.arg('label', help='k=v pairs, may be specified multiple times')
 def main(name,
          *label,
+         scope: 'service account scope' = None,
          verbose = False,
          tag: 'may be specified multiple times' = None,
          type=os.environ['GCP_COMPUTE_TYPE'],
@@ -104,6 +106,7 @@ def main(name,
              'it to exit before calling `sudo poweroff`. '
              'set to 0 to disable.') = 60 * 60,
          return_config_only=False):
+    scopes = scope
     labels = label
     tags = tag or []
     if image == 'arch':
@@ -154,7 +157,8 @@ def main(name,
                                      'accessConfigs': [{'type': 'ONE_TO_ONE_NAT',
                                                         'networkTier': network_tier,
                                                         'name': 'External NAT'}]}],
-              'serviceAccounts': [{'email': service_account}]}
+              'serviceAccounts': [{'email': service_account,
+                                   'scopes': scopes}]}
     config['metadata'] = {'items': [{'key': 'startup-script', 'value': init}]}
     if return_config_only:
         print(json.dumps(config))
