@@ -51,7 +51,7 @@ def main(name=None,
             print(yaml.dump({name: res}).strip())
         else:
             for r in res:
-                print(res['name'])
+                print(r['name'])
 
 if __name__ == '__main__':
     with cli_gcp.setup():
