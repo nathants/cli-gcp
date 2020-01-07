@@ -11,7 +11,7 @@ def main(*selectors,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT'],
          yes=False):
-    assert end_state in ['running']
+    assert end_state in ['running', 'terminated']
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
     instances = []
     for zone in zones:

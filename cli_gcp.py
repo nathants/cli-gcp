@@ -31,6 +31,18 @@ def ip_private(instance):
 def compute():
     return googleapiclient.discovery.build('compute', 'v1')
 
+@cached.func
+def logging_client():
+    return google.cloud.logging.Client()
+
+@cached.func
+def function():
+    return googleapiclient.discovery.build('cloudfunctions', 'v1')
+
+@cached.func
+def storage_client():
+    return google.cloud.storage.Client()
+
 def url(obj):
     return obj.get('targetLink') or obj['selfLink'] # target if insert(), self if get()
 

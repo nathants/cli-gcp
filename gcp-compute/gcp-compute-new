@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 import shell
 import uuid
 import yaml
@@ -8,6 +9,7 @@ import logging
 import os
 import argh
 import cli_gcp
+from util.retry import retry
 
 _default_init = 'date > /tmp/cloudinit.log'
 
@@ -78,6 +80,14 @@ def get_image(image, project):
     image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
     return image_response['selfLink']
 
+def gce_operation_log(res):
+    trace_id = res['selfLink'].split('/')[-1]
+    logger = cli_gcp.logging_client().logger('compute.googleapis.com%2Factivity_log')
+    filter = f'jsonPayload.trace_id:{trace_id} AND jsonPayload.event_type:GCE_OPERATION_DONE'
+    entries = list(logger.list_entries(filter_=filter))
+    assert len(entries) == 1, f'expected 1 log entry for {trace_id}, got: {len(entries)}'
+    return entries[0].payload
+
 @argh.arg('--tag', action='append')
 @argh.arg('--scope', action='append')
 @argh.arg('-n', '--num')
@@ -86,6 +96,7 @@ def main(name,
          *label,
          scope: 'service account scope' = None,
          verbose = False,
+         no_error_check: 'dont check logging for resource exhaustion and other errors' = False,
          tag: 'may be specified multiple times' = None,
          type=os.environ['GCP_COMPUTE_TYPE'],
          zone=os.environ['GCP_ZONE'],
@@ -95,10 +106,9 @@ def main(name,
          image='ubuntu-1804-lts',
          ondemand=False,
          gigs=64,
-         no_local_ssd=False,
          network_tier='STANDARD',
          init=_default_init,
-         local_ssd=True,
+         local_ssd=False,
          seconds_timeout: (
              'will `sudo poweroff` after this many '
              'seconds. calls `bash /tmp/timeout.sh` '
@@ -135,7 +145,7 @@ def main(name,
               'autoDelete': True,
               'initializeParams': {'sourceImage': source_disk_image,
                                    'diskSizeGb': str(gigs)}}]
-    if not no_local_ssd:
+    if local_ssd:
         disks += [{'autoDelete': True,
                    'type': 'SCRATCH',
                    "interface": "NVME",
@@ -169,6 +179,11 @@ def main(name,
             if verbose:
                 logging.info(yaml.dump({'config': config}))
             res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
+            if not no_error_check:
+                entry = retry(gce_operation_log, exponent=1.1, times=20)(res)
+                if 'error' in entry:
+                    logging.info(yaml.dump(entry['error']))
+                    sys.exit(1)
             if verbose:
                 logging.info(yaml.dump({'result': res}))
             ids += [res['targetId']]
