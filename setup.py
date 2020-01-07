@@ -10,13 +10,13 @@ setuptools.setup(
     author_email='me@nathants.com',
     url='http://github.com/nathants/cli-gcp',
     py_modules=['cli_gcp'],
-    python_requires='>=3.7',
+    python_requires='>=3.6',
     install_requires=['requests >2, <3',
                       'argh >0.26, <0.27',
-                      'google-api-python-client >1.7, <2',
-                      'google-auth >1.10, <2',
+                      'google-api-python-client >1, <2',
+                      'google-auth >1, <2',
                       'PyYAML >3, <6',
-                      'google-cloud-storage >1.23, <2'],
+                      'google-cloud-storage >1, <2'],
     description='composable, succinct gcp scripts',
 )
 
