@@ -1,34 +1,43 @@
 #!/usr/bin/env python3
-import yaml
 import shell
 import json
-import logging
 import os
 import argh
 import cli_gcp
 
+@argh.arg('--scope', action='append')
 def main(name,
+         image=None,
+         service_account='default',
+         scope: 'service account scope' = None,
          project=os.environ['GCP_PROJECT'],
          region=os.environ['GCP_REGION'],
          zone=os.environ['GCP_ZONE'],
          timeout=30,
          balancing_mode='UTILIZATION',
          init='',
+         ondemand=False,
          port: 'http port on backend services' = 8080,
          target_size=3,
          target_size_max=10,
          verbose=False,
          health_check_http_path="/health"):
-
+    scopes = scope
+    scopes = [f'--scope {scope}' for scope in scopes]
+    assert image, 'you must provide --image'
     instance_template_name = f'{name}-instance-template'
     if init:
         init = f'--init "{init}"'
     firewall_network_tag = f'{name}-allow-health-checks'
     instance_config = json.loads(shell.run('gcp-compute-new',
                                            f'{name}-instance',
+                                           '--image', image,
                                            '--return-config-only',
+                                           f'--service-account {service_account}',
+                                           *scopes,
                                            '--zone', zone,
                                            '--tag', firewall_network_tag,
+                                           '--ondemand' if ondemand else '',
                                            init))
     instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
     for disk in instance_config['disks']:

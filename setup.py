@@ -16,6 +16,7 @@ setuptools.setup(
                       'google-api-python-client >1, <2',
                       'google-auth >1, <2',
                       'PyYAML >3, <6',
+                      'google-cloud-logging >1, <2',
                       'google-cloud-storage >1, <2'],
     description='composable, succinct gcp scripts',
 )
@@ -39,4 +40,4 @@ for src in scripts:
         pass
     os.symlink(src, dst)
     os.chmod(dst, 0o775)
-    print('link:', dst, '=>', src)
+    print('link:', dst, '=>', src, file=sys.stderr)

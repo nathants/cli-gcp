@@ -1,3 +1,4 @@
+import os
 import schema
 import yaml
 import logging
@@ -11,6 +12,8 @@ import sys
 import util.iter
 import util.log
 import googleapiclient.discovery
+import google.cloud.storage
+import google.cloud.logging
 from util import cached
 from util.retry import retry
 from util.colors import red, green, cyan # noqa

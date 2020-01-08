@@ -83,8 +83,6 @@ def get_image(image, project):
         image_response = cli_gcp.compute().images().get(project=image_project, image=image).execute()
     return image_response['selfLink']
 
-
-
 def gce_operation_log(res):
     trace_id = res['selfLink'].split('/')[-1]
     logger = cli_gcp.logging_client().logger('compute.googleapis.com%2Factivity_log')
