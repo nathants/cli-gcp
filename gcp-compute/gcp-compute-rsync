@@ -33,6 +33,7 @@ def main(src,
             assert shell.getch() == 'y', 'abort'
         justify = max(len(cli_gcp.ip(i)) for i in instances)
         def run(instance, color):
+            local_user = instance['labels']['local-user']
             if color:
                 color = getattr(util.colors, color)
             else:
@@ -41,14 +42,23 @@ def main(src,
             def fn():
                 host = (user or whoami) + '@' + cli_gcp.ip(instance)
                 _src = host + src if src.startswith(':') else src
+                if ':' in _src:
+                    remote, path = _src.split(':')
+                    if not path.startswith('/'):
+                        path = f'/home/{local_user}/{path}'
+                    _src = f'{remote}:{path}'.rstrip('/')
                 _dst = host + dst if dst.startswith(':') else dst
+                if ':' in _dst:
+                    remote, path = _dst.split(':')
+                    if not path.startswith('/'):
+                        path = f'/home/{local_user}/{path}'
+                    _dst = f'{remote}:{path}'.rstrip('/')
                 try:
-                    shell.run('rsync -avhc',
-                              os.environ.get('GCP_RSYNC_OPTIONS', ''),
-                              f'-e "ssh {cli_gcp.ssh_args}"',
-                              _src,
-                              _dst,
-                              callback=lambda _, x: logging.info(color(name + x)))
+                    try:
+                        shell.run('rsync -avhc', os.environ.get('GCP_RSYNC_OPTIONS', ''), f'-e "ssh {cli_gcp.ssh_args}"', _src, _dst, callback=lambda _, x: logging.info(color(name + x)))
+                    except:
+                        shell.run('gcp-compute-ssh', instance['id'], '-yc', f'"sudo chmod ugo+rw /home/{local_user}"')
+                        shell.run('rsync -avhc', os.environ.get('GCP_RSYNC_OPTIONS', ''), f'-e "ssh {cli_gcp.ssh_args}"', _src, _dst, callback=lambda _, x: logging.info(color(name + x)))
                 except:
                     failures.append(util.colors.red('failure: ') + cli_gcp.ip(instance))
                 else:

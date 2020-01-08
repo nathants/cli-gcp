@@ -5,6 +5,7 @@ import argh
 import cli_gcp
 import datetime
 import yaml
+import logging
 
 def main(name,
          *selectors,
@@ -23,7 +24,8 @@ def main(name,
               "sourceDisk": instances[0]['disks'][0]['source'],
               "name": name + '-' + datetime.datetime.utcnow().isoformat().split('.')[0].replace(':', '-').lower() + 'z'}
     res = cli_gcp.compute().images().insert(project=project, body=config).execute()
-    print(yaml.dump(res))
+    logging.info(yaml.dump(res))
+    print(config['name'])
 
 if __name__ == '__main__':
     with cli_gcp.setup():

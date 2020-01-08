@@ -77,8 +77,13 @@ def get_image(image, project):
                       'arch': 'arch-linux-gce'}
     key = image.split('-')[0]
     image_project = image_projects.get(key, project)
-    image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
+    try:
+        image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
+    except:
+        image_response = cli_gcp.compute().images().get(project=image_project, image=image).execute()
     return image_response['selfLink']
+
+
 
 def gce_operation_log(res):
     trace_id = res['selfLink'].split('/')[-1]
