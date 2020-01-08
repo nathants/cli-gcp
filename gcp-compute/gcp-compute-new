@@ -96,7 +96,7 @@ def main(name,
          *label,
          scope: 'service account scope' = None,
          verbose = False,
-         no_error_check: 'dont check logging for resource exhaustion and other errors' = False,
+         error_check: 'check logging for resource exhaustion and other errors' = False,
          tag: 'may be specified multiple times' = None,
          type=os.environ['GCP_COMPUTE_TYPE'],
          zone=os.environ['GCP_ZONE'],
@@ -179,7 +179,7 @@ def main(name,
             if verbose:
                 logging.info(yaml.dump({'config': config}))
             res = cli_gcp.compute().instances().insert(project=project, zone=zone, body=config).execute()
-            if not no_error_check:
+            if error_check: # why does this sometimes not work, there are no logs?
                 entry = retry(gce_operation_log, exponent=1.1, times=20)(res)
                 if 'error' in entry:
                     logging.info(yaml.dump(entry['error']))
