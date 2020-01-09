@@ -1,4 +1,5 @@
 import os
+import time
 import schema
 import yaml
 import logging
@@ -12,6 +13,7 @@ import sys
 import util.iter
 import util.log
 import googleapiclient.discovery
+import google.cloud.dns
 import google.cloud.storage
 import google.cloud.logging
 from util import cached
@@ -33,6 +35,14 @@ def ip_private(instance):
 @cached.func
 def compute():
     return googleapiclient.discovery.build('compute', 'v1')
+
+# @cached.func
+def dns_client():
+    return google.cloud.dns.Client()
+
+@cached.func
+def compute_beta():
+    return googleapiclient.discovery.build('compute', 'beta')
 
 @cached.func
 def logging_client():
@@ -209,6 +219,42 @@ class ensure:
             config['denied'] = tuple(config['denied'])
             return config
         return _ensure(verbose, 'firewall denied', get, insert, config, schemafy)
+
+    def dns_a_record(verbose, project, domain, address, ttl=300):
+        assert not domain.endswith('.'), f'bad domain, should not end with dot: {domain}'
+        zone_dns = '.'.join(domain.split('.')[-2:]) + '.'
+        domain += '.'
+        for zone in dns_client().list_zones():
+            if zone.dns_name == zone_dns:
+                for record in zone.list_resource_record_sets():
+                    if record.record_type == 'A' and record.name == domain:
+                        schema.validate([address], record.rrdatas)
+                        logging.info(f'A record exists {domain} {address}')
+                        break
+                else:
+                    changes = zone.changes()
+                    record_set = zone.resource_record_set(domain, 'A', ttl, [address])
+                    changes.add_record_set(record_set)
+                    changes.create()
+                    while changes.status != 'done':
+                        logging.info('waiting for dns changes')
+                        time.sleep(5)
+                        changes.reload()
+                    logging.info(f'added A record {domain} {address}')
+                break
+        else:
+            logging.fatal(f'no such zone: {zone_dns}')
+            sys.exit(1)
+
+    def ssl_cert_domain(verbose, project, ssl_cert_name, domain):
+        get = compute_beta().sslCertificates().get(project=project, sslCertificate=ssl_cert_name).execute
+        schemafy = lambda _: {}
+        with shell.tempdir():
+            config = {'name': ssl_cert_name,
+                      'type': 'MANAGED',
+                      'managed': {'domains': [domain]}}
+            insert = compute_beta().sslCertificates().insert(project=project, body=config).execute
+            return _ensure(verbose, 'ssl cert domain', get, insert, config, schemafy)
 
     def ssl_cert(verbose, project, ssl_cert_name, ip_address):
         get = compute().sslCertificates().get(project=project, sslCertificate=ssl_cert_name).execute

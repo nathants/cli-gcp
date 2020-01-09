@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import time
 import yaml
 import shell
 import logging
@@ -14,24 +15,27 @@ def main(name,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT'],
          yes=False):
+    lb_name = name
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
 
     c = cli_gcp.compute()
-    xs = [('firewall',              c.firewalls(),             {'project': project, 'firewall':         f'{name}-firewall-allow-health-checks'}),
-          ('http forwarding rule',  c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{name}-http-forwarding-rules'}),
-          ('https forwarding rule', c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{name}-https-forwarding-rules'}),
-          ('http proxy',            c.targetHttpProxies(),     {'project': project, 'targetHttpProxy':  f'{name}-http-proxy'}),
-          ('https proxy',           c.targetHttpsProxies(),    {'project': project, 'targetHttpsProxy': f'{name}-https-proxy'}),
-          ('global address',        c.globalAddresses(),       {'project': project, 'address':          f'{name}-ip-address'}),
-          ('ssl cert',              c.sslCertificates(),       {'project': project, 'sslCertificate':   f'{name}-ssl-cert'}),
-          ('url map',               c.urlMaps(),               {'project': project, 'urlMap':           f'{name}-url-map'}),
-          ('backend service',       c.backendServices(),       {'project': project, 'backendService':   f'{name}-backend-service'})]
+    xs = [('firewall',              c.firewalls(),             {'project': project, 'firewall':         f'{lb_name}-firewall-allow-health-checks'}),
+          ('http forwarding rule',  c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-http-forwarding-rules'}),
+          ('https forwarding rule', c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-https-forwarding-rules'}),
+          ('http proxy',            c.targetHttpProxies(),     {'project': project, 'targetHttpProxy':  f'{lb_name}-http-proxy'}),
+          ('https proxy',           c.targetHttpsProxies(),    {'project': project, 'targetHttpsProxy': f'{lb_name}-https-proxy'}),
+          ('global address',        c.globalAddresses(),       {'project': project, 'address':          f'{lb_name}-ip-address'}),
+          ('ssl cert',              c.sslCertificates(),       {'project': project, 'sslCertificate':   f'{lb_name}-ssl-cert'}),
+          ('url map',               c.urlMaps(),               {'project': project, 'urlMap':           f'{lb_name}-url-map'}),
+          ('backend service',       c.backendServices(),       {'project': project, 'backendService':   f'{lb_name}-backend-service'})]
     for zone in zones:
-        xs += [('autoscalers',            c.autoscalers(),           {'project': project, 'autoscaler':             f'{name}-autoscaler', 'zone': zone}),
-               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{name}-instance-group-manager', 'zone': zone}),
-               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{name}-instance-group-manager', 'zone': zone})] # TODO why do we have to call delete twice for this?
-    xs += [('instance template',        c.instanceTemplates(),  {'project': project, 'instanceTemplate': f'{name}-instance-template'}),
-           ('health check',             c.healthChecks(),       {'project': project, 'healthCheck':      f'{name}-health-checks'})]
+        xs += [('autoscalers',            c.autoscalers(),           {'project': project, 'autoscaler':             f'{lb_name}-autoscaler', 'zone': zone}),
+               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{lb_name}-instance-group-manager', 'zone': zone}),
+               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{lb_name}-instance-group-manager', 'zone': zone})] # TODO why do we have to call delete twice for this?
+    xs += [('instance template',        c.instanceTemplates(),  {'project': project, 'instanceTemplate': f'{lb_name}-instance-template'}),
+           ('health check',             c.healthChecks(),       {'project': project, 'healthCheck':      f'{lb_name}-health-checks'})]
+
+    address = None
 
     logging.info('going to delete:\n')
     for name, obj, kw in xs:
@@ -41,10 +45,26 @@ def main(name,
             if e.resp.status != 404:
                 raise
         else:
+            if name == 'global address':
+                address = res
             if verbose:
                 logging.info(yaml.dump({name: res}))
             else:
-                logging.info(f'{name}')
+                logging.info(f'{res["name"]}')
+
+    # lookup dns A records via ipv4, since a records don't have names or labels
+    a_records = {}
+    for zone in cli_gcp.dns_client().list_zones():
+        for record in zone.list_resource_record_sets():
+            a_records[record.rrdatas[0]] = (record, zone)
+    ipv4_address = address['address']
+    if ipv4_address in a_records:
+        record, zone = a_records[ipv4_address]
+        name = address['name'].replace('-ip-address', '-dns-a-record')
+        if verbose:
+            logging.info(yaml.dump({name: res}))
+        else:
+            logging.info(name)
 
     if not yes:
         logging.info('\nwould you like to proceed? y/n\n')
@@ -62,6 +82,24 @@ def main(name,
                 logging.info(yaml.dump({name: res}))
             else:
                 logging.info(f'deleted: {name}')
+
+    # lookup dns A records via ipv4, since a records don't have names or labels
+    ipv4_address = address['address']
+    if ipv4_address in a_records:
+        record, zone = a_records[ipv4_address]
+        name = address['name'].replace('-ip-address', '-dns-a-record')
+        changes = zone.changes()
+        record_set = zone.delete_record_set(record)
+        changes.add_record_set(record_set)
+        changes.create()
+        while changes.status != 'done':
+            logging.info('waiting for dns changes')
+            time.sleep(5)
+            changes.reload()
+        if verbose:
+            logging.info(f'{name} {ipv4_address} {record.name}')
+        else:
+            logging.info(f'deleted: {name}')
 
 if __name__ == '__main__':
     with cli_gcp.setup():

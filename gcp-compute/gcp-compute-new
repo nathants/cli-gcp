@@ -119,8 +119,8 @@ def main(name,
              'it to exit before calling `sudo poweroff`. '
              'set to 0 to disable.') = 60 * 60,
          return_config_only=False):
-    scopes = scope
-    labels = label
+    scopes = scope or []
+    labels = label or []
     tags = tag or []
     if image == 'arch':
         local_user = 'root'

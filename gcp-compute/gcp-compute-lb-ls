@@ -32,6 +32,8 @@ def main(name=None,
         # listManagedInstances(project=*, zone=*, instanceGroupManager=*, order_by=None, maxResults=None, pageToken=None, filter=None)
     ]
 
+    addresses = []
+
     for x in xs:
         try:
             name, obj, kws = x
@@ -52,6 +54,24 @@ def main(name=None,
         else:
             for r in res:
                 print(r['name'])
+
+        if name == 'global addresses':
+            addresses = res
+
+    # lookup dns A records via ipv4, since a records don't have names or labels
+    a_records = {}
+    for zone in cli_gcp.dns_client().list_zones():
+        for record in zone.list_resource_record_sets():
+            a_records[record.rrdatas[0]] = (record, zone)
+    for address in addresses:
+        ipv4_address = address['address']
+        if ipv4_address in a_records:
+            record, zone = a_records[ipv4_address]
+            name = address['name'].replace('-ip-address', '-dns-a-record')
+            if verbose:
+                print(name, ipv4_address, record.name)
+            else:
+                print(name)
 
 if __name__ == '__main__':
     with cli_gcp.setup():

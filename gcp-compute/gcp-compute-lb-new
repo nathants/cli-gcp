@@ -7,12 +7,13 @@ import cli_gcp
 
 @argh.arg('--scope', action='append')
 def main(name,
-         image=None,
+         image='ubuntu-1804-lts',
          service_account='default',
          scope: 'service account scope' = None,
          project=os.environ['GCP_PROJECT'],
          region=os.environ['GCP_REGION'],
          zone=os.environ['GCP_ZONE'],
+         domain: 'gcp cloud dns domain to use for cname and ssl cert' = None,
          timeout=30,
          balancing_mode='UTILIZATION',
          init='',
@@ -22,9 +23,8 @@ def main(name,
          target_size_max=10,
          verbose=False,
          health_check_http_path="/health"):
-    scopes = scope
+    scopes = scope or []
     scopes = [f'--scope {scope}' for scope in scopes]
-    assert image, 'you must provide --image'
     instance_template_name = f'{name}-instance-template'
     if init:
         init = f'--init "{init}"'
@@ -69,7 +69,11 @@ def main(name,
     ip_address = cli_gcp.ensure.global_ip_address(verbose, project, ip_address_name)
 
     ssl_cert_name = f'{name}-ssl-cert'
-    ssl_cert = cli_gcp.ensure.ssl_cert(verbose, project, ssl_cert_name, ip_address['address'])
+    if domain: # google managed cert at cloud dns cname
+        cli_gcp.ensure.dns_a_record(verbose, project, domain, ip_address['address'])
+        ssl_cert = cli_gcp.ensure.ssl_cert_domain(verbose, project, ssl_cert_name, domain)
+    else: # self signed cert at ipv4
+        ssl_cert = cli_gcp.ensure.ssl_cert(verbose, project, ssl_cert_name, ip_address['address'])
 
     https_proxy_name = f'{name}-https-proxy'
     https_proxy = cli_gcp.ensure.https_proxy(verbose, project, https_proxy_name, cli_gcp.url(url_map), cli_gcp.url(ssl_cert))

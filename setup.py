@@ -17,6 +17,7 @@ setuptools.setup(
                       'google-auth >1, <2',
                       'PyYAML >3, <6',
                       'google-cloud-logging >1, <2',
+                      'google-cloud-dns >0, <1',
                       'google-cloud-storage >1, <2'],
     description='composable, succinct gcp scripts',
 )
