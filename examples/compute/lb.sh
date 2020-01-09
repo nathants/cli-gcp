@@ -5,7 +5,7 @@ cd $(dirname $(realpath $0))
 name=test
 
 # make a new load balancer with autoscaling cluster of servers
-gcp-compute-lb-new $name -i ./_http.sh
+gcp-compute-lb-new $name --init ./_http.sh
 
 # delete it at script end
 trap 'gcp-compute-lb-rm -y $name' EXIT
