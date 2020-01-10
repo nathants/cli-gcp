@@ -79,8 +79,10 @@ def get_image(image, project):
     image_project = image_projects.get(key, project)
     try:
         image_response = cli_gcp.compute().images().getFromFamily(project=image_project, family=image).execute()
+        logging.info(f'using latest image for family {image}: {image_response["selfLink"].split("/")[-1]}')
     except:
         image_response = cli_gcp.compute().images().get(project=image_project, image=image).execute()
+        logging.info(f'using image family {image}')
     return image_response['selfLink']
 
 def gce_operation_log(res):
