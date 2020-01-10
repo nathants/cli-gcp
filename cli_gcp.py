@@ -298,7 +298,7 @@ class ensure:
 
     def https_proxy(verbose, project, https_proxy_name, url_map_url, ssl_cert_url):
         config = {'name': https_proxy_name,
-                  'sslCertificates': [ssl_cert_url],
+                  'sslCertificates': [ssl_cert_url.replace('/beta/', '/v1/')],
                   'urlMap': url_map_url}
         get = compute().targetHttpsProxies().get(project=project, targetHttpsProxy=config['name']).execute
         insert = compute().targetHttpsProxies().insert(project=project, body=config).execute
@@ -310,6 +310,7 @@ class ensure:
                   'urlMap': url_map_url}
         get = compute().targetHttpProxies().get(project=project, targetHttpProxy=config['name']).execute
         insert = compute().targetHttpProxies().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'http proxy', get, insert, config)
 
     def url_map(verbose, project, url_map_name, backend_service_name):
@@ -332,7 +333,7 @@ class ensure:
                 for k, v in backend_config.items():
                     schema.validate({k: v}, {k: backend.get(k)})
                     logging.info(f'backend config is valid for: {k}={v}')
-                return backend_service
+                break
         else:
             backend_service['backends'] = backend_service.get('backends', []) + [backend_config]
             if verbose:
@@ -342,8 +343,32 @@ class ensure:
             if verbose:
                 logging.info(yaml.dump({'backendService': res}))
             else:
-                logging.info(f'added: {backend_service_name}')
-            return update
+                logging.info(f'backend has: {instance_group_manager_name}')
+
+    def backend_hasnt_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name):
+        try:
+            instance_group_manager = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=instance_group_manager_name).execute()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+
+        else:
+            instance_group_url = instance_group_manager['instanceGroup']
+            backend_service = compute().backendServices().get(project=project, backendService=backend_service_name).execute()
+            backends = backend_service.get('backends', [])
+            new_backends = [backend for backend in backends if backend['group'] != instance_group_url]
+            if len(backends) == len(new_backends):
+                logging.info('backend hasnt: {instance_group_manager_name}')
+            else:
+                backend_service['backends'] = new_backends
+                if verbose:
+                    logging.info(yaml.dump({'backendService': backend_service}))
+                update = compute().backendServices().update(project=project, backendService=backend_service_name, body=backend_service).execute
+                res = retry(update, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be updated before upstream components actually exists
+                if verbose:
+                    logging.info(yaml.dump({'backendService': res}))
+                else:
+                    logging.info(f'removed: {instance_group_manager_name}')
 
     def instance_template(verbose, project, instance_template_name, instance_config):
         config = {'name': instance_template_name,
@@ -387,6 +412,7 @@ class ensure:
                   "timeoutSec": timeout}
         get = compute().backendServices().get(project=project, backendService=config['name']).execute
         insert = compute().backendServices().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'backend service', get, insert, config)
 
     def managed_instance_group(verbose, project, zone, instance_name, health_check_url, target_size, target_size_max, instance_template_url, port_name, port, instance_group_manager_name):
@@ -403,6 +429,7 @@ class ensure:
                   "name": instance_group_manager_name}
         get = compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=config['name']).execute
         insert = compute().instanceGroupManagers().insert(project=project, zone=zone, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'managed instance group', get, insert, config)
 
     def autoscaler(verbose, project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
@@ -414,4 +441,5 @@ class ensure:
                   "name": autoscaler_name}
         get = compute().autoscalers().get(project=project, zone=zone, autoscaler=config['name']).execute
         insert = compute().autoscalers().insert(project=project, zone=zone, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'autoscaler', get, insert, config)

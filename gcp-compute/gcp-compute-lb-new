@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
+import logging
 import shell
 import json
 import os
 import argh
 import cli_gcp
 
+port_name = "http-port"
+
 @argh.arg('--scope', action='append')
+@argh.arg('--zone', action='append')
 def main(name,
          image='ubuntu-1804-lts',
          service_account='default',
          scope: 'service account scope' = None,
          project=os.environ['GCP_PROJECT'],
          region=os.environ['GCP_REGION'],
-         zone=os.environ['GCP_ZONE'],
+         zone=None,
          domain: 'gcp cloud dns domain to use for cname and ssl cert' = None,
          timeout=30,
          balancing_mode='UTILIZATION',
@@ -23,44 +27,49 @@ def main(name,
          target_size_max=10,
          verbose=False,
          health_check_http_path="/health"):
-    scopes = scope or []
-    scopes = [f'--scope {scope}' for scope in scopes]
-    instance_template_name = f'{name}-instance-template'
-    if init:
-        init = f'--init "{init}"'
-    firewall_network_tag = f'{name}-allow-health-checks'
-    instance_config = json.loads(shell.run('gcp-compute-new',
-                                           f'{name}-instance',
-                                           '--image', image,
-                                           '--return-config-only',
-                                           f'--service-account {service_account}',
-                                           *scopes,
-                                           '--zone', zone,
-                                           '--tag', firewall_network_tag,
-                                           '--ondemand' if ondemand else '',
-                                           init))
-    instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
-    for disk in instance_config['disks']:
-        if 'diskType' in disk['initializeParams']:
-            disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
-    instance_template = cli_gcp.ensure.instance_template(verbose, project, instance_template_name, instance_config)
+    zones = zone or []
+    assert zones, 'you must specify one or more: --zone $ZONE'
 
     health_check_name = f'{name}-health-checks'
     health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
 
-    port_name = "http-port"
-
-    instance_group_manager_name = f'{name}-instance-group-manager'
-    instance_name = f'{name}-managed-instance'
-    instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
-
-    autoscaler_name = f'{name}-autoscaler'
-    cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
-
     backend_service_name = f'{name}-backend-service'
     backend_service = cli_gcp.ensure.backend_service(verbose, project, timeout, cli_gcp.url(health_check), port_name, backend_service_name)
 
-    cli_gcp.ensure.backend_has_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
+    if init:
+        init = f'--init "{init}"'
+    scopes = scope or []
+    scopes = [f'--scope {scope}' for scope in scopes]
+    for zone in zones:
+        logging.info(f'setup zone: {zone}')
+        instance_template_name = f'{name}-instance-template-{zone}'
+        firewall_network_tag = f'{name}-allow-health-checks'
+        instance_config = json.loads(shell.run('gcp-compute-new',
+                                               f'{name}-instance-{zone}',
+                                               '--image', image,
+                                               '--return-config-only',
+                                               f'--service-account {service_account}',
+                                               *scopes,
+                                               '--zone', zone,
+                                               '--tag', firewall_network_tag,
+                                               '--ondemand' if ondemand else '',
+                                               init))
+        instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
+        if instance_config.get('serviceAccounts'):
+            instance_config['serviceAccounts'][0]['scopes'] = tuple(instance_config['serviceAccounts'][0].get('scopes', []))
+        for disk in instance_config['disks']:
+            if 'diskType' in disk['initializeParams']:
+                disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
+        instance_template = cli_gcp.ensure.instance_template(verbose, project, instance_template_name, instance_config)
+
+        instance_group_manager_name = f'{name}-instance-group-manager-{zone}'
+        instance_name = f'{name}-managed-instance-{zone}'
+        instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
+
+        autoscaler_name = f'{name}-autoscaler-{zone}'
+        cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
+
+        cli_gcp.ensure.backend_has_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
 
     url_map_name = f'{name}-url-map'
     url_map = cli_gcp.ensure.url_map(verbose, project, url_map_name, cli_gcp.url(backend_service))
