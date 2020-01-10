@@ -136,10 +136,13 @@ def ls(project: str, zone: str, selectors: [str], state: str):
         resp = req.execute()
         for item in resp.get('items', []):
             instance_tags = item.get('tags', {}).get('items', [])
-            if ((not tags or all(tag in instance_tags for tag in tags))
-                or (not ip_privs or item['networkInterfaces'][0]['networkIP'] in ip_privs)
-                or (not ips or item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] in ips)):
-                yield item
+            if tags and any(tag not in instance_tags for tag in tags):
+                continue
+            if ip_privs and item['networkInterfaces'][0]['networkIP'] not in ip_privs:
+                continue
+            if ips and item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] not in ips:
+                continue
+            yield item
         req = compute().instances().list_next(req, resp)
 
 def now():
