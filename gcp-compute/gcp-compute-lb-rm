@@ -89,8 +89,7 @@ def main(name,
         record, zone = a_records[ipv4_address]
         name = address['name'].replace('-ip-address', '-dns-a-record')
         changes = zone.changes()
-        record_set = zone.delete_record_set(record)
-        changes.add_record_set(record_set)
+        changes.delete_record_set(record)
         changes.create()
         while changes.status != 'done':
             logging.info('waiting for dns changes')

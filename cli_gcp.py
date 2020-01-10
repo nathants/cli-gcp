@@ -228,7 +228,7 @@ class ensure:
             if zone.dns_name == zone_dns:
                 for record in zone.list_resource_record_sets():
                     if record.record_type == 'A' and record.name == domain:
-                        schema.validate([address], record.rrdatas)
+                        schema.validate({'rrdatas': [address]}, {'rrdatas': record.rrdatas})
                         logging.info(f'A record exists {domain} {address}')
                         break
                 else:
