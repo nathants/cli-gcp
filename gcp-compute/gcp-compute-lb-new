@@ -46,6 +46,7 @@ def main(name,
         firewall_network_tag = f'{name}-allow-health-checks'
         instance_config = json.loads(shell.run('gcp-compute-new',
                                                f'{name}-instance-{zone}',
+                                               '--seconds-timeout 0',
                                                '--image', image,
                                                '--return-config-only',
                                                f'--service-account {service_account}',
