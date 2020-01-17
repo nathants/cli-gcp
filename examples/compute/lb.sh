@@ -2,6 +2,8 @@
 set -xeou pipefail
 cd $(dirname $(realpath $0))
 
+false # needs an update now that gcp-compute-group-new isnt implicit in gcp-compute-lb-new
+
 name=test
 
 # make a new load balancer with autoscaling cluster of servers

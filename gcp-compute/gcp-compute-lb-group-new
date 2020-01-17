@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+import json
+import argh
+import cli_gcp
+import os
+import shell
+from util.retry import retry
+
+@argh.arg('--scope', action='append')
+def main(name,
+         suffix='',
+         service_account='default',
+         port=8080,
+         zone=None,
+         image=None,
+         scope=None,
+         verbose=False,
+         ondemand=False,
+         target_size=3,
+         target_size_max=10,
+         init='',
+         project=os.environ['GCP_PROJECT']):
+    lb_name = name
+    assert suffix, 'you must specify --suffix'
+    assert '-' not in suffix, f'suffix cannot container "-": {suffix}'
+    assert image, 'you must specify --image'
+    assert zone, 'you must specify --zone'
+    if suffix:
+        suffix = f'-{suffix}'
+    if init:
+        init = f'--init "{init}"'
+    scopes = [f'--scope {scope}' for scope in scope or []]
+    firewall_network_tag = f'{lb_name}-allow-health-checks'
+    instance_template_name = f'{lb_name}-instance-template-{zone}{suffix}'
+    instance_config = json.loads(shell.run('gcp-compute-new',
+                                           f'{lb_name}-instance-{zone}',
+                                           '--seconds-timeout 0',
+                                           '--image', image,
+                                           '--return-config-only',
+                                           f'--service-account {service_account}',
+                                           *scopes,
+                                           '--zone', zone,
+                                           '--tag', firewall_network_tag,
+                                           '--ondemand' if ondemand else '',
+                                           init))
+    instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
+    if instance_config.get('serviceAccounts'):
+        instance_config['serviceAccounts'][0]['scopes'] = tuple(instance_config['serviceAccounts'][0].get('scopes', []))
+    for disk in instance_config['disks']:
+        if 'diskType' in disk['initializeParams']:
+            disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
+    instance_template = cli_gcp.ensure.instance_template(verbose, project, instance_template_name, instance_config)
+
+    health_check_name = f'{lb_name}-health-checks'
+    get_health_check = cli_gcp.compute().healthChecks().get(project=project, healthCheck=health_check_name).execute
+    get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
+    health_check = get_health_check()
+
+    instance_group_manager_name = f'{lb_name}-instance-group-manager-{zone}{suffix}'
+    instance_name = f'{lb_name}-managed-instance-{zone}'
+    instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), cli_gcp.port_name, port, instance_group_manager_name)
+
+    autoscaler_name = f'{lb_name}-autoscaler-{zone}{suffix}'
+    cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
+
+if __name__ == '__main__':
+    with cli_gcp.setup():
+        argh.dispatch_command(main)

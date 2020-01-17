@@ -11,6 +11,8 @@ import argh
 import cli_gcp
 from util.retry import retry
 
+_default_stop = 'echo goodbye'
+
 _default_init = 'date > /tmp/cloudinit.log'
 
 _nvme_init = """
@@ -113,6 +115,7 @@ def main(name,
          gigs=64,
          network_tier='STANDARD',
          init=_default_init,
+         stop=_default_stop,
          local_ssd=False,
          seconds_timeout: (
              'will `sudo poweroff` after this many '
@@ -132,6 +135,17 @@ def main(name,
     source_disk_image = get_image(image, project)
     machine_type = f"zones/{zone}/machineTypes/{type}"
     ssd_type = f"projects/{project}/zones/{zone}/diskTypes/local-ssd"
+    # stop script
+    if os.path.isfile(stop):
+        logging.info(f'loading stop script from file: {stop}')
+        with open(stop) as f:
+            stop = f.read()
+        if stop.startswith('#!'):
+            assert stop.startswith('#!/bin/bash'), f'bad stop script: {stop[:50]}...'
+            stop = '\n'.join(stop.split('\n')[1:])
+    assert not stop.startswith('#!'), 'stop commands are bash snippets, and should not include a hashbang'
+    stop = '#!/bin/bash\npath=/tmp/$(uuidgen); echo %s | base64 -d > $path; sudo -u %s bash -e $path 2>&1' % (util.strings.b64_encode(stop), local_user)
+    # init script
     if os.path.isfile(init):
         logging.info(f'loading init script from file: {init}')
         with open(init) as f:
@@ -174,7 +188,8 @@ def main(name,
                                                         'name': 'External NAT'}]}],
               'serviceAccounts': [{'email': service_account,
                                    'scopes': scopes}]}
-    config['metadata'] = {'items': [{'key': 'startup-script', 'value': init}]}
+    config['metadata'] = {'items': [{'key': 'startup-script', 'value': init},
+                                    {'key': 'shutdown-script', 'value': stop}]}
     if return_config_only:
         print(json.dumps(config))
     else:

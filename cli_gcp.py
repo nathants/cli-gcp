@@ -20,6 +20,8 @@ from util import cached
 from util.retry import retry
 from util.colors import red, green, cyan # noqa
 
+port_name = "http-port"
+
 ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
 
 def ip(instance):
@@ -132,6 +134,7 @@ def ls(project: str, zone: str, selectors: [str], state: str):
             sys.exit(1)
     filter = ' AND '.join(filter)
     req = compute().instances().list(project=project, zone=zone, filter=filter)
+    ids = []
     while req:
         resp = req.execute()
         for item in resp.get('items', []):
@@ -142,8 +145,10 @@ def ls(project: str, zone: str, selectors: [str], state: str):
                 continue
             if ips and item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] not in ips:
                 continue
+            ids.append(item['id'])
             yield item
         req = compute().instances().list_next(req, resp)
+    assert len(ids) == len(set(ids)), 'looks like gcp compute ids are unique per zone, not region. this will require some changes'
 
 def now():
     return str(datetime.datetime.utcnow().isoformat()) + 'Z'
@@ -361,7 +366,7 @@ class ensure:
             backends = backend_service.get('backends', [])
             new_backends = [backend for backend in backends if backend['group'] != instance_group_url]
             if len(backends) == len(new_backends):
-                logging.info('backend hasnt: {instance_group_manager_name}')
+                logging.info(f'backend hasnt: {instance_group_manager_name}')
             else:
                 backend_service['backends'] = new_backends
                 if verbose:
@@ -379,18 +384,7 @@ class ensure:
         get = compute().instanceTemplates().get(project=project, instanceTemplate=config['name']).execute
         insert = compute().instanceTemplates().insert(project=project, body=config).execute
         def schemafy(config):
-            config = config['properties']
-            config['machineType'] = config['machineType'].split('/')[-1]
-            config['tags']['fingerprint'] = (':optional', str, '')
-            config['tags']['items'] = config['tags']['items'] or (':optional', list, [])
-            config['disks'] = tuple(config['disks'])
-            del config['name']
-            for net in config['networkInterfaces']:
-                val = net['network']
-                def f(x):
-                    return x.endswith(val)
-                net['network'] = f
-            return config
+            return {} # dont check template, since it changes with every deploy
         def resafy(res):
             res = res['properties']
             return res

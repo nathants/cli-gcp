@@ -1,106 +1,56 @@
 #!/usr/bin/env python3
-import logging
+import uuid
 import shell
-import json
 import os
 import argh
 import cli_gcp
 
-port_name = "http-port"
-
-@argh.arg('--scope', action='append')
-@argh.arg('--zone', action='append')
 def main(name,
-         image='ubuntu-1804-lts',
-         service_account='default',
-         scope: 'service account scope' = None,
          project=os.environ['GCP_PROJECT'],
-         region=os.environ['GCP_REGION'],
-         zone=None,
          domain: 'gcp cloud dns domain to use for cname and ssl cert' = None,
          timeout=30,
-         balancing_mode='UTILIZATION',
-         init='',
-         ondemand=False,
          port: 'http port on backend services' = 8080,
-         target_size=3,
-         target_size_max=10,
          verbose=False,
          health_check_http_path="/health"):
-    zones = zone or []
-    assert zones, 'you must specify one or more: --zone $ZONE'
+    lb_name = name
 
-    health_check_name = f'{name}-health-checks'
+    health_check_name = f'{lb_name}-health-checks'
     health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
 
-    backend_service_name = f'{name}-backend-service'
-    backend_service = cli_gcp.ensure.backend_service(verbose, project, timeout, cli_gcp.url(health_check), port_name, backend_service_name)
+    backend_service_name = f'{lb_name}-backend-service'
+    backend_service = cli_gcp.ensure.backend_service(verbose, project, timeout, cli_gcp.url(health_check), cli_gcp.port_name, backend_service_name)
 
-    if init:
-        init = f'--init "{init}"'
-    scopes = scope or []
-    scopes = [f'--scope {scope}' for scope in scopes]
-    for zone in zones:
-        logging.info(f'setup zone: {zone}')
-        instance_template_name = f'{name}-instance-template-{zone}'
-        firewall_network_tag = f'{name}-allow-health-checks'
-        instance_config = json.loads(shell.run('gcp-compute-new',
-                                               f'{name}-instance-{zone}',
-                                               '--seconds-timeout 0',
-                                               '--image', image,
-                                               '--return-config-only',
-                                               f'--service-account {service_account}',
-                                               *scopes,
-                                               '--zone', zone,
-                                               '--tag', firewall_network_tag,
-                                               '--ondemand' if ondemand else '',
-                                               init))
-        instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
-        if instance_config.get('serviceAccounts'):
-            instance_config['serviceAccounts'][0]['scopes'] = tuple(instance_config['serviceAccounts'][0].get('scopes', []))
-        for disk in instance_config['disks']:
-            if 'diskType' in disk['initializeParams']:
-                disk['initializeParams']['diskType'] = disk['initializeParams']['diskType'].split('/')[-1]
-        instance_template = cli_gcp.ensure.instance_template(verbose, project, instance_template_name, instance_config)
-
-        instance_group_manager_name = f'{name}-instance-group-manager-{zone}'
-        instance_name = f'{name}-managed-instance-{zone}'
-        instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), port_name, port, instance_group_manager_name)
-
-        autoscaler_name = f'{name}-autoscaler-{zone}'
-        cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
-
-        cli_gcp.ensure.backend_has_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name, balancing_mode, cli_gcp.url(health_check))
-
-    url_map_name = f'{name}-url-map'
+    url_map_name = f'{lb_name}-url-map'
     url_map = cli_gcp.ensure.url_map(verbose, project, url_map_name, cli_gcp.url(backend_service))
 
-    ip_address_name = f'{name}-ip-address'
+    ip_address_name = f'{lb_name}-ip-address'
     ip_address = cli_gcp.ensure.global_ip_address(verbose, project, ip_address_name)
 
-    ssl_cert_name = f'{name}-ssl-cert'
+    ssl_cert_name = f'{lb_name}-ssl-cert'
     if domain: # google managed cert at cloud dns cname
         cli_gcp.ensure.dns_a_record(verbose, project, domain, ip_address['address'])
         ssl_cert = cli_gcp.ensure.ssl_cert_domain(verbose, project, ssl_cert_name, domain)
     else: # self signed cert at ipv4
         ssl_cert = cli_gcp.ensure.ssl_cert(verbose, project, ssl_cert_name, ip_address['address'])
 
-    https_proxy_name = f'{name}-https-proxy'
+    https_proxy_name = f'{lb_name}-https-proxy'
     https_proxy = cli_gcp.ensure.https_proxy(verbose, project, https_proxy_name, cli_gcp.url(url_map), cli_gcp.url(ssl_cert))
 
-    https_forwarding_rules_name = f'{name}-https-forwarding-rules'
+    https_forwarding_rules_name = f'{lb_name}-https-forwarding-rules'
     cli_gcp.ensure.global_forwarding_rules(verbose, project, https_forwarding_rules_name, cli_gcp.url(https_proxy), ip_address['address'], '443-443')
 
-    http_proxy_name = f'{name}-http-proxy'
+    http_proxy_name = f'{lb_name}-http-proxy'
     http_proxy = cli_gcp.ensure.http_proxy(verbose, project, http_proxy_name, cli_gcp.url(url_map))
 
-    http_forwarding_rules_name = f'{name}-http-forwarding-rules'
+    http_forwarding_rules_name = f'{lb_name}-http-forwarding-rules'
     cli_gcp.ensure.global_forwarding_rules(verbose, project, http_forwarding_rules_name, cli_gcp.url(http_proxy), ip_address['address'], '80-80')
 
-    firewall_rule_name = f'{name}-firewall-allow-health-checks'
+    firewall_network_tag = f'{lb_name}-allow-health-checks'
+    firewall_rule_name = f'{lb_name}-firewall-allow-health-checks'
     official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']
     cli_gcp.ensure.firewall_allow(verbose, project, firewall_rule_name, official_gcp_ips, [firewall_network_tag], port)
 
 if __name__ == '__main__':
     with cli_gcp.setup():
-        argh.dispatch_command(main)
+        with shell.set_stream():
+            argh.dispatch_command(main)

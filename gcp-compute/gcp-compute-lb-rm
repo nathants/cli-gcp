@@ -14,7 +14,6 @@ def main(name,
          verbose=False,
          region=os.environ['GCP_REGION'],
          project=os.environ['GCP_PROJECT'],
-         zonal_only: 'only delete zonal infra, not the regional and global infra' = False,
          yes=False):
     lb_name = name
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
@@ -22,42 +21,56 @@ def main(name,
     c = cli_gcp.compute()
     xs = []
     backend_service_name = f'{lb_name}-backend-service'
-    if not zonal_only:
-        xs += [('firewall',              c.firewalls(),             {'project': project, 'firewall':         f'{lb_name}-firewall-allow-health-checks'}),
-               ('http forwarding rule',  c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-http-forwarding-rules'}),
-               ('https forwarding rule', c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-https-forwarding-rules'}),
-               ('http proxy',            c.targetHttpProxies(),     {'project': project, 'targetHttpProxy':  f'{lb_name}-http-proxy'}),
-               ('https proxy',           c.targetHttpsProxies(),    {'project': project, 'targetHttpsProxy': f'{lb_name}-https-proxy'}),
-               ('global address',        c.globalAddresses(),       {'project': project, 'address':          f'{lb_name}-ip-address'}),
-               ('ssl cert',              c.sslCertificates(),       {'project': project, 'sslCertificate':   f'{lb_name}-ssl-cert'}),
-               ('url map',               c.urlMaps(),               {'project': project, 'urlMap':           f'{lb_name}-url-map'}),
-               ('backend service',       c.backendServices(),       {'project': project, 'backendService':   backend_service_name})]
+    xs += [('firewall',              c.firewalls(),             {'project': project, 'firewall':         f'{lb_name}-firewall-allow-health-checks'}),
+           ('http forwarding rule',  c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-http-forwarding-rules'}),
+           ('https forwarding rule', c.globalForwardingRules(), {'project': project, 'forwardingRule':   f'{lb_name}-https-forwarding-rules'}),
+           ('http proxy',            c.targetHttpProxies(),     {'project': project, 'targetHttpProxy':  f'{lb_name}-http-proxy'}),
+           ('https proxy',           c.targetHttpsProxies(),    {'project': project, 'targetHttpsProxy': f'{lb_name}-https-proxy'}),
+           ('global address',        c.globalAddresses(),       {'project': project, 'address':          f'{lb_name}-ip-address'}),
+           ('ssl cert',              c.sslCertificates(),       {'project': project, 'sslCertificate':   f'{lb_name}-ssl-cert'}),
+           ('url map',               c.urlMaps(),               {'project': project, 'urlMap':           f'{lb_name}-url-map'}),
+           ('backend service',       c.backendServices(),       {'project': project, 'backendService':   backend_service_name})]
+
+    # scalers, managers, and templates, have n instances, with unique suffixes
     instance_group_manager_name = f'{lb_name}-instance-group-manager'
     for zone in zones:
-        xs += [('autoscalers',            c.autoscalers(),           {'project': project, 'autoscaler':             f'{lb_name}-autoscaler-{zone}', 'zone': zone}),
-               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{instance_group_manager_name}-{zone}', 'zone': zone}),
-               ('instance group manager', c.instanceGroupManagers(), {'project': project, 'instanceGroupManager':   f'{instance_group_manager_name}-{zone}', 'zone': zone}), # TODO why do we have to call delete twice for this?
-               ('instance template',      c.instanceTemplates(),     {'project': project, 'instanceTemplate':       f'{lb_name}-instance-template-{zone}'})]
-
-    if not zonal_only:
-        xs += [('health check',             c.healthChecks(),       {'project': project, 'healthCheck':      f'{lb_name}-health-checks'})]
+        xs += [('autoscalers',            c.autoscalers(),           {'list': 'autoscaler',           'project': project, 'autoscaler':             f'{lb_name}-autoscaler-{zone}', 'zone': zone}),
+               ('instance group manager', c.instanceGroupManagers(), {'list': 'instanceGroupManager', 'project': project, 'instanceGroupManager':   f'{instance_group_manager_name}-{zone}', 'zone': zone}),
+               ('instance group manager', c.instanceGroupManagers(), {'list': 'instanceGroupManager', 'project': project, 'instanceGroupManager':   f'{instance_group_manager_name}-{zone}', 'zone': zone}), # TODO why do we have to call delete twice for this? # noqa
+               ('instance template',      c.instanceTemplates(),     {'list': 'instanceTemplate',     'project': project, 'instanceTemplate':       f'{lb_name}-instance-template-{zone}'})]
+    xs += [('health check', c.healthChecks(), {'project': project, 'healthCheck': f'{lb_name}-health-checks'})]
 
     address = None
 
     logging.info('going to delete:\n')
     for name, obj, kw in xs:
-        try:
-            res = obj.get(**kw).execute()
-        except googleapiclient.errors.HttpError as e:
-            if e.resp.status != 404:
-                raise
+        _kw = kw.copy()
+        if 'list' in kw:
+            _key = _kw.pop('list')
+            _name = _kw.pop(_key)
+            req = obj.list(**_kw)
+            while req:
+                resp = req.execute()
+                for item in resp.get('items', []):
+                    if item['name'].startswith(f'{_name}-'):
+                        if verbose:
+                            logging.info(yaml.dump({item['name']: item}))
+                        else:
+                            logging.info(f'{item["name"]}')
+                req = obj.list_next(req, resp)
         else:
-            if name == 'global address':
-                address = res
-            if verbose:
-                logging.info(yaml.dump({name: res}))
+            try:
+                res = obj.get(**_kw).execute()
+            except googleapiclient.errors.HttpError as e:
+                if e.resp.status != 404:
+                    raise
             else:
-                logging.info(f'{res["name"]}')
+                if name == 'global address':
+                    address = res
+                if verbose:
+                    logging.info(yaml.dump({name: res}))
+                else:
+                    logging.info(f'{res["name"]}')
 
     # lookup dns A records via ipv4, since a records don't have names or labels
     if address: # can only lookup dns if addresses exists
@@ -78,22 +91,41 @@ def main(name,
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
 
-    # if doing a zonal delete, we have to remote instance groups from backup. otherwise everything is being deleted anyway.
-    for zone in zones:
-        cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, f'{instance_group_manager_name}-{zone}')
-
     for name, obj, kw in xs:
-        try:
-            res = retry(obj.delete(**kw).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)() # can't be deleted before upstream components actually gone
-        except googleapiclient.errors.HttpError as e:
-            if e.resp.status != 404:
-                raise
-            logging.info(f'already deleted: {name}')
+        _kw = kw.copy()
+        if 'list' in kw:
+            _key = _kw.pop('list')
+            _name = _kw.pop(_key)
+            req = obj.list(**_kw)
+            while req:
+                resp = req.execute()
+                for item in resp.get('items', []):
+                    if item['name'].startswith(f'{_name}-'):
+                        try:
+                            res = retry(obj.delete(**_kw, **{_key: item['name']}).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+                        except googleapiclient.errors.HttpError as e:
+                            if e.resp.status != 404:
+                                raise
+                            logging.info(f'already deleted: {item["name"]}')
+                        else:
+                            if verbose:
+                                logging.info(yaml.dump({item['name']: res}))
+                            else:
+                                logging.info(f'deleted: {item["name"]}')
+
+                req = obj.list_next(req, resp)
         else:
-            if verbose:
-                logging.info(yaml.dump({name: res}))
+            try:
+                res = retry(obj.delete(**kw).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+            except googleapiclient.errors.HttpError as e:
+                if e.resp.status != 404:
+                    raise
+                logging.info(f'already deleted: {name}')
             else:
-                logging.info(f'deleted: {name}')
+                if verbose:
+                    logging.info(yaml.dump({name: res}))
+                else:
+                    logging.info(f'deleted: {name}')
 
     # lookup dns A records via ipv4, since a records don't have names or labels
     if address:
