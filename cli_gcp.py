@@ -432,7 +432,7 @@ class ensure:
     def autoscaler(verbose, project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
         config = {"autoscalingPolicy": {"maxNumReplicas": target_size_max,
                                         "coolDownPeriodSec": 30,
-                                        "cpuUtilization": {"utilizationTarget": 0.5},
+                                        "cpuUtilization": {"utilizationTarget": 0.65},
                                         "minNumReplicas": target_size},
                   "target": instance_group_manager_url,
                   "name": autoscaler_name}
