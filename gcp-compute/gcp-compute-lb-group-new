@@ -19,6 +19,7 @@ def main(name,
          target_size=3,
          target_size_max=10,
          init='',
+         stop='',
          project=os.environ['GCP_PROJECT']):
     lb_name = name
     assert suffix, 'you must specify --suffix'
@@ -29,6 +30,8 @@ def main(name,
         suffix = f'-{suffix}'
     if init:
         init = f'--init "{init}"'
+    if stop:
+        stop = f'--stop "{stop}"'
     scopes = [f'--scope {scope}' for scope in scope or []]
     firewall_network_tag = f'{lb_name}-allow-health-checks'
     instance_template_name = f'{lb_name}-instance-template-{zone}{suffix}'
@@ -42,7 +45,8 @@ def main(name,
                                            '--zone', zone,
                                            '--tag', firewall_network_tag,
                                            '--ondemand' if ondemand else '',
-                                           init))
+                                           init,
+                                           stop))
     instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
     if instance_config.get('serviceAccounts'):
         instance_config['serviceAccounts'][0]['scopes'] = tuple(instance_config['serviceAccounts'][0].get('scopes', []))
