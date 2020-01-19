@@ -8,7 +8,7 @@ import cli_gcp
 
 def main(name,
          suffix=None,
-         timeout_seconds=60 * 3,
+         timeout_seconds=60 * 5,
          zone=None):
     assert suffix, 'you must specify --suffix'
     assert zone, 'you must specify --zone'

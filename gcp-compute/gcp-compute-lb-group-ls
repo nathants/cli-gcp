@@ -6,8 +6,9 @@ import os
 import shell
 import googleapiclient.errors
 
+@argh.arg('-r', '--removed')
 def main(name,
-         include_removed=False,
+         removed=False,
          verbose=False,
          suffix='',
          zone=None,
@@ -30,7 +31,7 @@ def main(name,
             raise
         sys.exit(1)
 
-    if include_removed and not suffix:
+    if removed and not suffix:
         groups = []
         for zone in zones:
             req = cli_gcp.compute().instanceGroupManagers().list(project=project, zone=zone)

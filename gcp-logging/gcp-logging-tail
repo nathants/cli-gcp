@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import time
+import datetime
+import shell
+import os
+import argh
+import cli_gcp
+
+def main(log_name='gcplogs-docker-driver',
+         *container_metadata,
+         type='gce_instance',
+         start_from_minutes_ago=0,
+         project=os.environ['GCP_PROJECT']):
+    timestamp = (datetime.datetime.utcnow() - datetime.timedelta(minutes=start_from_minutes_ago)).isoformat() + 'Z'
+    logger = cli_gcp.logging_client().logger(log_name)
+    last = 0
+    while True:
+        seconds_since_last_request = time.time() - last
+        if seconds_since_last_request < 1:
+            time.sleep(5 - seconds_since_last_request)
+        filter = f'(timestamp > "{timestamp}")'
+        filter += f' AND (resource.type="{type}")'
+        for meta in container_metadata:
+            k, v = meta.split('=')
+            filter += f' AND (jsonPayload.container.metadata.{k}="{v}")'
+        entry = None
+        last = time.time()
+        for entry in logger.list_entries(filter_=filter):
+            print(entry.payload['message'])
+        if entry:
+            timestamp = entry.timestamp.isoformat()
+
+if __name__ == '__main__':
+    shell.ignore_closed_pipes()
+    with cli_gcp.setup():
+        argh.dispatch_command(main)
