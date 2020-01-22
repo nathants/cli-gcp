@@ -116,7 +116,7 @@ def main(name,
                 req = obj.list_next(req, resp)
         else:
             try:
-                res = retry(obj.delete(**kw).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+                res = retry(obj.delete(**kw).execute, times=10000, max_seconds=900, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
             except googleapiclient.errors.HttpError as e:
                 if e.resp.status != 404:
                     raise

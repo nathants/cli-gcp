@@ -64,7 +64,7 @@ def main(name,
 
     for _ in range(2): # TODO why does this have to happen twice?
         try:
-            res = retry(cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+            res = retry(cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
