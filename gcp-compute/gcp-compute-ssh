@@ -28,7 +28,7 @@ def _remote_cmd(local_user, cmd, stdin, instance_id):
     """
 
 def _make_callback(instance, quiet, append=None, no_stream=False):
-    name = instance['labels']['name'] + ': ' + cli_gcp.ip(instance) + ': '
+    name = instance['labels']['name'] + ': ' + cli_gcp.smart_ip(instance) + ': '
     def f(_, line):
         val = (line if quiet else name + line).replace('\r', '')
         if append is not None:
@@ -87,7 +87,7 @@ def main(*selectors,
         logging.info(f'gcp-compute-ssh running against selectors: {selectors}, with cmd: {cmd}')
     if timeout:
         ssh_cmd = ['timeout', f'{timeout}s'] + ssh_cmd
-    make_ssh_cmd = lambda i: ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(i), _remote_cmd(i['labels']['local-user'], cmd, stdin, i['id'])]
+    make_ssh_cmd = lambda i: ssh_cmd + [(user or whoami) + '@' + cli_gcp.smart_ip(i), _remote_cmd(i['labels']['local-user'], cmd, stdin, i['id'])]
     login = len(instances) == 1 and not cmd
     if not yes and not login:
         logging.info('\nwould you like to proceed? y/n\n')
@@ -107,8 +107,8 @@ def main(*selectors,
             if resp['exitcode'] != 0:
                 if error_message:
                     print(error_message.format(id=instance['id'],
-                                               ip=cli_gcp.ip(instance),
-                                               ipv4_private=cli_gcp.ip_private(instance),
+                                               ip=cli_gcp.smart_ip(instance),
+                                               ipv4_private=cli_gcp.smart_ip_private(instance),
                                                name=instance['labels']['name']),
                           flush=True)
                 msg = util.colors.red('failure: ') + instance['labels']['name'] + ': ' + instance['id']
@@ -145,7 +145,7 @@ def main(*selectors,
     else:
         try:
             local_user = instances[0]['labels']['local-user']
-            subprocess.check_call(ssh_cmd + [(user or whoami) + '@' + cli_gcp.ip(instances[0])] + [f'sudo su -l {local_user}'])
+            subprocess.check_call(ssh_cmd + [(user or whoami) + '@' + cli_gcp.smart_ip(instances[0])] + [f'sudo su -l {local_user}'])
         except subprocess.CalledProcessError:
             sys.exit(1)
 

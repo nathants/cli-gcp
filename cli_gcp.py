@@ -1,4 +1,4 @@
-import os
+import requests
 import time
 import schema
 import yaml
@@ -24,11 +24,28 @@ port_name = "http-port"
 
 ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
 
+@cached.func
+def inside_data_center():
+    try:
+        resp = requests.get("http://metadata.google.internal/computeMetadata/v1/instance/hostname", headers={'Metadata-Flavor': 'Google'}, timeout=1)
+    except requests.exceptions.ConnectionError:
+        return False
+    else:
+        assert resp.status_code == 200
+        return True
+
+def smart_ip(instance):
+    if inside_data_center():
+        logging.debug('smart ip: using private ip address')
+        return ip_private(instance)
+    else:
+        logging.debug('smart ip: using public ip address')
+        return ip(instance)
+
 def ip(instance):
     assert len(instance['networkInterfaces']) == 1, yaml.dump(instance)
     assert len(instance['networkInterfaces'][0]['accessConfigs']) == 1, yaml.dump(instance)
     return instance['networkInterfaces'][0]['accessConfigs'][0]['natIP']
-
 
 def ip_private(instance):
     assert len(instance['networkInterfaces']) == 1, yaml.dump(instance)
@@ -38,7 +55,7 @@ def ip_private(instance):
 def compute():
     return googleapiclient.discovery.build('compute', 'v1')
 
-# @cached.func
+@cached.func
 def dns_client():
     return google.cloud.dns.Client()
 

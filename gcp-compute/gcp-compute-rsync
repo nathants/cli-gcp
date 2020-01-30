@@ -31,16 +31,16 @@ def main(src,
         if not yes:
             logging.info('\nwould you like to proceed? y/n\n')
             assert shell.getch() == 'y', 'abort'
-        justify = max(len(cli_gcp.ip(i)) for i in instances)
+        justify = max(len(cli_gcp.smart_ip(i)) for i in instances)
         def run(instance, color):
             local_user = instance['labels']['local-user']
             if color:
                 color = getattr(util.colors, color)
             else:
                 color = lambda x: x
-            name = (cli_gcp.ip(instance) + ': ').ljust(justify + 2)
+            name = (cli_gcp.smart_ip(instance) + ': ').ljust(justify + 2)
             def fn():
-                host = (user or whoami) + '@' + cli_gcp.ip(instance)
+                host = (user or whoami) + '@' + cli_gcp.smart_ip(instance)
                 _src = host + src if src.startswith(':') else src
                 if ':' in _src:
                     remote, path = _src.split(':')
@@ -60,9 +60,9 @@ def main(src,
                         shell.run('gcp-compute-ssh', instance['id'], '-yc', f'"sudo chmod ugo+rw /home/{local_user}"')
                         shell.run('rsync -avhc', os.environ.get('GCP_RSYNC_OPTIONS', ''), f'-e "ssh {cli_gcp.ssh_args}"', _src, _dst, callback=lambda _, x: logging.info(color(name + x)))
                 except:
-                    failures.append(util.colors.red('failure: ') + cli_gcp.ip(instance))
+                    failures.append(util.colors.red('failure: ') + cli_gcp.smart_ip(instance))
                 else:
-                    successes.append(util.colors.green('success: ') + cli_gcp.ip(instance))
+                    successes.append(util.colors.green('success: ') + cli_gcp.smart_ip(instance))
             return fn
         failures = []
         successes = []
