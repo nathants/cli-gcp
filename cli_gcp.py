@@ -414,6 +414,7 @@ class ensure:
                                       'port': port}}
         get = compute().healthChecks().get(project=project, healthCheck=config['name']).execute
         insert = compute().healthChecks().insert(project=project, body=config).execute
+        insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'health check', get, insert, config)
 
     def backend_service(verbose, project, timeout, health_check_url, port_name, backend_service_name):

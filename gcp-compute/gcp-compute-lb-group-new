@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import logging
+import googleapiclient.errors
 import json
 import argh
 import cli_gcp
@@ -58,7 +60,17 @@ def main(name,
     health_check_name = f'{lb_name}-health-checks'
     get_health_check = cli_gcp.compute().healthChecks().get(project=project, healthCheck=health_check_name).execute
     get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
-    health_check = get_health_check()
+    try:
+        health_check = get_health_check()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        port = 8080
+        health_check_http_path = '/health'
+        health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
+        logging.info(f'created health check: {health_check_name}')
+    else:
+        logging.info(f'using existing health check: {health_check_name}')
 
     instance_group_manager_name = f'{lb_name}-instance-group-manager-{zone}{suffix}'
     instance_name = f'{lb_name}-managed-instance-{zone}'
