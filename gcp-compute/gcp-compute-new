@@ -32,7 +32,7 @@ sudo mkdir -p /mnt
 sudo mount -o discard ${disk}p1 /mnt
 sudo chown -R $(whoami):$(whoami) /mnt
 sudo chmod -R ugo+rw /mnt
-sudo chmod -R ugo+rw /home/ubuntu
+sudo chmod -R ugo+rw /home/ubuntu || true
 """
 
 _timeout_init = """

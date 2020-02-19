@@ -41,23 +41,28 @@ def main(src,
             name = (cli_gcp.smart_ip(instance) + ': ').ljust(justify + 2)
             def fn():
                 host = (user or whoami) + '@' + cli_gcp.smart_ip(instance)
+                _src = src
+                if _src[0] == ':' and len(_src) > 1 and _src[1] != '/':
+                    _src = f':~/{_src[1:]}'
+                home = '/root' if local_user == 'root' else f'/home/{local_user}'
+                _src = _src.replace('~/', f'{home}/')
                 _src = host + src if src.startswith(':') else src
                 if ':' in _src:
                     remote, path = _src.split(':')
                     if not path.startswith('/'):
-                        path = f'/home/{local_user}/{path}'
+                        path = f'{home}/{path}'
                     _src = f'{remote}:{path}'.rstrip('/')
                 _dst = host + dst if dst.startswith(':') else dst
                 if ':' in _dst:
                     remote, path = _dst.split(':')
                     if not path.startswith('/'):
-                        path = f'/home/{local_user}/{path}'
+                        path = f'{home}/{path}'
                     _dst = f'{remote}:{path}'.rstrip('/')
                 try:
                     try:
                         shell.run('rsync -avhc', os.environ.get('GCP_RSYNC_OPTIONS', ''), f'-e "ssh {cli_gcp.ssh_args}"', _src, _dst, callback=lambda _, x: logging.info(color(name + x)))
                     except:
-                        shell.run('gcp-compute-ssh', instance['id'], '-yc', f'"sudo chmod ugo+rw /home/{local_user}"')
+                        shell.run('gcp-compute-ssh', instance['id'], '-yc', f'"sudo chmod ugo+rwx {home}"')
                         shell.run('rsync -avhc', os.environ.get('GCP_RSYNC_OPTIONS', ''), f'-e "ssh {cli_gcp.ssh_args}"', _src, _dst, callback=lambda _, x: logging.info(color(name + x)))
                 except:
                     failures.append(util.colors.red('failure: ') + cli_gcp.smart_ip(instance))
