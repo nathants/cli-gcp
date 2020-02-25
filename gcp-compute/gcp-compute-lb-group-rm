@@ -48,7 +48,11 @@ def main(name,
         assert shell.getch() == 'y', 'abort'
 
     backend_service_name = f'{lb_name}-backend-service'
-    cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
+    try:
+        cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
 
     try:
         res = retry(cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()

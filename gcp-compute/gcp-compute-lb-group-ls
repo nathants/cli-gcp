@@ -29,7 +29,7 @@ def main(name,
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        sys.exit(1)
+        backend_service = None
 
     if removed and not suffix:
         groups = []
@@ -41,6 +41,7 @@ def main(name,
                     if item['name'].startswith(f'{lb_name}-'):
                         groups.append((zone, item))
                 req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
+
     else:
         groups = []
         for backend in backend_service.get('backends', []):
@@ -52,7 +53,10 @@ def main(name,
     if not groups:
         sys.exit(1)
 
-    backends = {b['group'].split('/')[-1] for b in backend_service.get('backends', [])}
+    if backend_service:
+        backends = {b['group'].split('/')[-1] for b in backend_service.get('backends', [])}
+    else:
+        backends = {}
 
     size = 0
     for zone, group in groups:
