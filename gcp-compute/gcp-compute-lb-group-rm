@@ -50,12 +50,15 @@ def main(name,
     backend_service_name = f'{lb_name}-backend-service'
     try:
         cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
+        has_backend = True
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
+        has_backend = False
 
     try:
-        res = retry(cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        delete = cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler).execute
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -68,7 +71,8 @@ def main(name,
 
     for _ in range(2): # TODO why does this have to happen twice?
         try:
-            res = retry(cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
+            delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute
+            res = retry(delete, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
@@ -80,7 +84,8 @@ def main(name,
                 logging.info(f'deleted: {group["name"]}')
 
     try:
-        res = retry(cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=template).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=template).execute
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
@@ -90,6 +95,16 @@ def main(name,
             logging.info(yaml.dump({scaler: res}))
         else:
             logging.info(f'deleted: {template}')
+
+    # when creating a loadbalancer-less group, for simple autoscaling compute, the group owns the health check
+    if not has_backend:
+        try:
+            delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=f'{lb_name}-health-checks').execute
+            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+            logging.info(f'already deleted: {template}')
 
 if __name__ == '__main__':
     with cli_gcp.setup():
