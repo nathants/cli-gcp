@@ -98,13 +98,16 @@ def main(name,
 
     # when creating a loadbalancer-less group, for simple autoscaling compute, the group owns the health check
     if not has_backend:
+        health_check = f'{lb_name}-health-checks'
         try:
-            delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=f'{lb_name}-health-checks').execute
+            delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=health_check).execute
             res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
-            logging.info(f'already deleted: {template}')
+            logging.info(f'already deleted: {health_check}')
+        else:
+            logging.info(f'deleted: {health_check}')
 
 if __name__ == '__main__':
     with cli_gcp.setup():

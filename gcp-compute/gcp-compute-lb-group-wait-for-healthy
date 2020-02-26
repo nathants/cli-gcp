@@ -19,7 +19,9 @@ def main(name,
             logging.info('timeout')
             sys.exit(1)
         fail = False
-        instances = shell.run('gcp-compute-lb-group-ls', lb_name, '--suffix', suffix, '--zone', zone, '--instances-only', echo=False).splitlines()
+        instances = shell.run('gcp-compute-lb-group-ls', lb_name, '-r', '--suffix', suffix, '--zone', zone, '--instances-only', echo=False).splitlines()
+        if not instances:
+            continue
         for instance in instances:
             id, state, health = instance.split()
             if state != 'RUNNING':
@@ -28,6 +30,7 @@ def main(name,
             elif health != 'HEALTHY':
                 fail = True
                 logging.info(f'waiting for {id} to be health=HEALTHY, currently: {health}')
+            logging.info(f'{id} state={state} health={health}')
         if not fail:
             return
 

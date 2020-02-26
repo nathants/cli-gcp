@@ -31,7 +31,7 @@ def main(name,
             raise
         backend_service = None
 
-    if removed and not suffix:
+    if removed:
         groups = []
         for zone in zones:
             req = cli_gcp.compute().instanceGroupManagers().list(project=project, zone=zone)
@@ -39,7 +39,8 @@ def main(name,
                 resp = req.execute()
                 for item in resp.get('items', []):
                     if item['name'].startswith(f'{lb_name}-'):
-                        groups.append((zone, item))
+                        if not suffix or item['name'].split('-')[-1] == suffix:
+                            groups.append((zone, item))
                 req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
 
     else:
