@@ -30,6 +30,7 @@ def main(name,
         if e.resp.status != 404:
             raise
         backend_service = None
+        removed = True # without a backend-service there is only removed mode
 
     if removed:
         groups = []
