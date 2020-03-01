@@ -96,7 +96,7 @@ def main(name,
         else:
             logging.info(f'deleted: {template}')
 
-    # when creating a loadbalancer-less group, for simple autoscaling compute, the group owns the health check
+    # when creating a loadbalancer-less group, for simple autoscaling compute, the group owns the health check and firewall
     if not has_backend:
         health_check = f'{lb_name}-health-checks'
         try:
@@ -108,6 +108,18 @@ def main(name,
             logging.info(f'already deleted: {health_check}')
         else:
             logging.info(f'deleted: {health_check}')
+
+        firewall = f'{lb_name}-firewall-allow-health-checks'
+        try:
+            delete = cli_gcp.compute().firewalls().delete(project=project, firewall=firewall).execute
+            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status != 404:
+                raise
+            logging.info(f'already deleted: {firewall}')
+        else:
+            logging.info(f'deleted: {firewall}')
+
 
 if __name__ == '__main__':
     with cli_gcp.setup():
