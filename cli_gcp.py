@@ -447,10 +447,10 @@ class ensure:
         insert = retry(insert, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
         return _ensure(verbose, 'managed instance group', get, insert, config)
 
-    def autoscaler(verbose, project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max):
+    def autoscaler(verbose, project, zone, autoscaler_name, instance_group_manager_url, target_size, target_size_max, cooldown=30, utilization=0.65):
         config = {"autoscalingPolicy": {"maxNumReplicas": target_size_max,
-                                        "coolDownPeriodSec": 30,
-                                        "cpuUtilization": {"utilizationTarget": 0.65},
+                                        "coolDownPeriodSec": cooldown,
+                                        "cpuUtilization": {"utilizationTarget": utilization},
                                         "minNumReplicas": target_size},
                   "target": instance_group_manager_url,
                   "name": autoscaler_name}

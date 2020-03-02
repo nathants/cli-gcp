@@ -13,6 +13,8 @@ def main(name,
          suffix='',
          service_account='default',
          port=8080,
+         cooldown=30,
+         utilization=0.65,
          zone=None,
          image=None,
          scope=None,
@@ -20,6 +22,7 @@ def main(name,
          ondemand=False,
          target_size=3,
          target_size_max=10,
+         local_ssd=False,
          init='',
          stop='',
          project=os.environ['GCP_PROJECT']):
@@ -47,6 +50,7 @@ def main(name,
                                            '--zone', zone,
                                            '--tag', firewall_network_tag,
                                            '--ondemand' if ondemand else '',
+                                           '--local-ssd' if local_ssd else '',
                                            init,
                                            stop))
     instance_config['machineType'] = instance_config['machineType'].split('/')[-1]
@@ -77,7 +81,7 @@ def main(name,
     instance_group_manager = cli_gcp.ensure.managed_instance_group(verbose, project, zone, instance_name, cli_gcp.url(health_check), target_size, target_size_max, cli_gcp.url(instance_template), cli_gcp.port_name, port, instance_group_manager_name)
 
     autoscaler_name = f'{lb_name}-autoscaler-{zone}{suffix}'
-    cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max)
+    cli_gcp.ensure.autoscaler(verbose, project, zone, autoscaler_name, cli_gcp.url(instance_group_manager), target_size, target_size_max, cooldown, utilization)
 
     firewall_rule_name = f'{lb_name}-firewall-allow-health-checks'
     get_firewall = cli_gcp.compute().firewalls().get(project=project, firewall=firewall_rule_name).execute
