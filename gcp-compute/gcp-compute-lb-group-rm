@@ -19,82 +19,88 @@ def main(name,
     lb_name = name
     suffix = f'-{suffix}'
 
-    group = None
-    scaler = None
-    template = None
-
     group_name = f'{name}-instance-group-manager-{zone}{suffix}'
-    group = cli_gcp.compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=group_name).execute()
-    scaler = group['name'].replace(f'-instance-group-manager-{zone}', f'-autoscaler-{zone}')
-    template = group['name'].replace(f'-instance-group-manager-{zone}', f'-instance-template-{zone}')
+    scaler_name = f'{name}-autoscaler-{zone}{suffix}'
+    template_name = f'{name}-instance-template-{zone}{suffix}'
 
     print('going to delete the following:\n')
 
-    print(scaler)
+    print(group_name)
 
-    print(template)
+    print(scaler_name)
 
-    print(group['name'], group['creationTimestamp'])
-    req = cli_gcp.compute().instanceGroupManagers().listManagedInstances(project=project, zone=zone, instanceGroupManager=group['name'])
-    while req:
-        resp = req.execute()
-        for item in resp.get('managedInstances', []):
-            health = item["instanceHealth"][0]["detailedHealthState"]
-            print(f' {item.get("id")} {item.get("instanceStatus")} {health}')
-        req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
+    print(template_name)
+
+    try:
+        group = cli_gcp.compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=group_name).execute()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        group = None
+    else:
+        print(group['name'], group['creationTimestamp'])
+        req = cli_gcp.compute().instanceGroupManagers().listManagedInstances(project=project, zone=zone, instanceGroupManager=group['name'])
+        while req:
+            resp = req.execute()
+            for item in resp.get('managedInstances', []):
+                health = item["instanceHealth"][0]["detailedHealthState"]
+                print(f' {item.get("id")} {item.get("instanceStatus")} {health}')
+            req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
 
     if not yes:
         print('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
 
-    backend_service_name = f'{lb_name}-backend-service'
-    try:
-        cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
-        has_backend = True
-    except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
-            raise
-        has_backend = False
-
-    try:
-        delete = cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler).execute
-        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
-    except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
-            raise
-        logging.info(f'already deleted: {scaler}')
-    else:
-        if verbose:
-            logging.info(yaml.dump({scaler: res}))
-        else:
-            logging.info(f'deleted: {scaler}')
-
-    for _ in range(2): # TODO why does this have to happen twice?
+    has_backend = False
+    if group:
+        backend_service_name = f'{lb_name}-backend-service'
         try:
-            delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute
-            res = retry(delete, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
+            cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
+            has_backend = True
         except googleapiclient.errors.HttpError as e:
             if e.resp.status != 404:
                 raise
-            logging.info(f'already deleted: {group["name"]}')
-        else:
-            if verbose:
-                logging.info(yaml.dump({group["name"]: res}))
-            else:
-                logging.info(f'deleted: {group["name"]}')
 
     try:
-        delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=template).execute
+        delete = cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler_name).execute
         res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
     except googleapiclient.errors.HttpError as e:
         if e.resp.status != 404:
             raise
-        logging.info(f'already deleted: {template}')
+        logging.info(f'already deleted: {scaler_name}')
     else:
         if verbose:
-            logging.info(yaml.dump({scaler: res}))
+            logging.info(yaml.dump({scaler_name: res}))
         else:
-            logging.info(f'deleted: {template}')
+            logging.info(f'deleted: {scaler_name}')
+
+    if group:
+        for _ in range(2): # TODO why does this have to happen twice?
+            try:
+                delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute
+                res = retry(delete, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
+            except googleapiclient.errors.HttpError as e:
+                if e.resp.status != 404:
+                    raise
+                logging.info(f'already deleted: {group["name"]}')
+            else:
+                if verbose:
+                    logging.info(yaml.dump({group["name"]: res}))
+                else:
+                    logging.info(f'deleted: {group["name"]}')
+
+    try:
+        delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=template_name).execute
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+    except googleapiclient.errors.HttpError as e:
+        if e.resp.status != 404:
+            raise
+        logging.info(f'already deleted: {template_name}')
+    else:
+        if verbose:
+            logging.info(yaml.dump({scaler_name: res}))
+        else:
+            logging.info(f'deleted: {template_name}')
 
     # when creating a loadbalancer-less group, for simple autoscaling compute, the group owns the health check and firewall
     if not has_backend:
