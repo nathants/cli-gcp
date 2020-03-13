@@ -28,10 +28,11 @@ ssh_args = ' -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no '
 def inside_data_center():
     try:
         resp = requests.get("http://metadata.google.internal/computeMetadata/v1/instance/hostname", headers={'Metadata-Flavor': 'Google'}, timeout=1)
-    except requests.exceptions.ConnectionError:
+        assert resp.status_code == 200
+        assert resp.text.strip()
+    except:
         return False
     else:
-        assert resp.status_code == 200
         return True
 
 def smart_ip(instance):
