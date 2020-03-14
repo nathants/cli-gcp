@@ -18,9 +18,9 @@ def main(name,
         assert shell.getch() == 'y', 'abort'
     delete = cli_gcp.compute().firewalls().delete(project=project, firewall=name).execute
     try:
-        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         logging.info(f'already deleted: {name}')
     else:

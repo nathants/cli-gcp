@@ -63,11 +63,11 @@ def main(name,
 
     health_check_name = f'{lb_name}-health-checks'
     get_health_check = cli_gcp.compute().healthChecks().get(project=project, healthCheck=health_check_name).execute
-    get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
+    get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)
     try:
         health_check = get_health_check()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         port = 8080
         health_check_http_path = '/health'
@@ -85,11 +85,11 @@ def main(name,
 
     firewall_rule_name = f'{lb_name}-firewall-allow-health-checks'
     get_firewall = cli_gcp.compute().firewalls().get(project=project, firewall=firewall_rule_name).execute
-    get_firewall = retry(get_firewall, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
+    get_firewall = retry(get_firewall, exponent=1.2, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)
     try:
         get_firewall()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         firewall_network_tag = f'{lb_name}-allow-health-checks'
         official_gcp_ips = ['35.191.0.0/16', '130.211.0.0/22']

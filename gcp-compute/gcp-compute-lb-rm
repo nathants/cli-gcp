@@ -62,7 +62,7 @@ def main(name,
             try:
                 res = obj.get(**_kw).execute()
             except googleapiclient.errors.HttpError as e:
-                if e.resp.status != 404:
+                if getattr(getattr(e, "resp", None), "status", None) != 404:
                     raise
             else:
                 if name == 'global address':
@@ -102,9 +102,9 @@ def main(name,
                 for item in resp.get('items', []):
                     if item['name'].startswith(f'{_name}-'):
                         try:
-                            res = retry(obj.delete(**_kw, **{_key: item['name']}).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+                            res = retry(obj.delete(**_kw, **{_key: item['name']}).execute, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
                         except googleapiclient.errors.HttpError as e:
-                            if e.resp.status != 404:
+                            if getattr(getattr(e, "resp", None), "status", None) != 404:
                                 raise
                             logging.info(f'already deleted: {item["name"]}')
                         else:
@@ -116,9 +116,9 @@ def main(name,
                 req = obj.list_next(req, resp)
         else:
             try:
-                res = retry(obj.delete(**kw).execute, times=10000, max_seconds=900, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+                res = retry(obj.delete(**kw).execute, times=10000, max_seconds=900, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
             except googleapiclient.errors.HttpError as e:
-                if e.resp.status != 404:
+                if getattr(getattr(e, "resp", None), "status", None) != 404:
                     raise
                 logging.info(f'already deleted: {name}')
             else:

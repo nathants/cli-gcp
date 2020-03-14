@@ -34,7 +34,7 @@ def main(name,
     try:
         group = cli_gcp.compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=group_name).execute()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         group = None
     else:
@@ -58,14 +58,14 @@ def main(name,
             cli_gcp.ensure.backend_hasnt_instance_group(False, project, zone, backend_service_name, group['name'])
             has_backend = True
         except googleapiclient.errors.HttpError as e:
-            if e.resp.status != 404:
+            if getattr(getattr(e, "resp", None), "status", None) != 404:
                 raise
 
     try:
         delete = cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler_name).execute
-        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         logging.info(f'already deleted: {scaler_name}')
     else:
@@ -78,9 +78,9 @@ def main(name,
         for _ in range(2): # TODO why does this have to happen twice?
             try:
                 delete = cli_gcp.compute().instanceGroupManagers().delete(project=project, zone=zone, instanceGroupManager=group['name']).execute
-                res = retry(delete, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: e.resp.status == 404)()
+                res = retry(delete, times=1000, exponent=1.5, max_seconds=900, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
             except googleapiclient.errors.HttpError as e:
-                if e.resp.status != 404:
+                if getattr(getattr(e, "resp", None), "status", None) != 404:
                     raise
                 logging.info(f'already deleted: {group["name"]}')
             else:
@@ -91,9 +91,9 @@ def main(name,
 
     try:
         delete = cli_gcp.compute().instanceTemplates().delete(project=project, instanceTemplate=template_name).execute
-        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status == 404)()
+        res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         logging.info(f'already deleted: {template_name}')
     else:
@@ -107,11 +107,11 @@ def main(name,
         health_check = f'{lb_name}-health-checks'
         try:
             delete = cli_gcp.compute().healthChecks().delete(project=project, healthCheck=health_check).execute
-            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status in {404, 400})()
+            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) in {404, 400})()
         except googleapiclient.errors.HttpError as e:
-            if e.resp.status == 400:
+            if getattr(getattr(e, "resp", None), "status", None) == 400:
                 logging.info(f'in use: {health_check}')
-            elif e.resp.status != 404:
+            elif getattr(getattr(e, "resp", None), "status", None) != 404:
                 raise
             else:
                 logging.info(f'already deleted: {health_check}')
@@ -121,11 +121,11 @@ def main(name,
         firewall = f'{lb_name}-firewall-allow-health-checks'
         try:
             delete = cli_gcp.compute().firewalls().delete(project=project, firewall=firewall).execute
-            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: e.resp.status in {400, 404})()
+            res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) in {400, 404})()
         except googleapiclient.errors.HttpError as e:
-            if e.resp.status == 400:
+            if getattr(getattr(e, "resp", None), "status", None) == 400:
                 logging.info(f'in use: {firewall}')
-            elif e.resp.status != 404:
+            elif getattr(getattr(e, "resp", None), "status", None) != 404:
                 raise
             else:
                 logging.info(f'already deleted: {firewall}')

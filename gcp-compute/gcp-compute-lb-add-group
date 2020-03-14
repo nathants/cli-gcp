@@ -19,7 +19,7 @@ def main(name,
 
     health_check_name = f'{lb_name}-health-checks'
     get_health_check = cli_gcp.compute().healthChecks().get(project=project, healthCheck=health_check_name).execute
-    get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: e.resp.status == 404)
+    get_health_check = retry(get_health_check, exponent=1.2, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)
     health_check = get_health_check()
 
     group_name = f'{name}-instance-group-manager-{zone}{suffix}'

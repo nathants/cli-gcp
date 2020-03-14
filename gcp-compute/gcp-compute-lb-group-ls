@@ -27,7 +27,7 @@ def main(name,
     try:
         backend_service = cli_gcp.compute().backendServices().get(project=project, backendService=backend_service_name).execute()
     except googleapiclient.errors.HttpError as e:
-        if e.resp.status != 404:
+        if getattr(getattr(e, "resp", None), "status", None) != 404:
             raise
         backend_service = None
         removed = True # without a backend-service there is only removed mode
