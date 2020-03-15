@@ -408,9 +408,12 @@ class ensure:
             return res
         return _ensure(verbose, 'instance template', get, insert, config, schemafy, resafy)
 
-    def health_check(verbose, project, health_check_name, health_check_http_path, port):
+    def health_check(verbose, project, health_check_name, health_check_http_path, port, interval_sec=15):
         config = {"name": health_check_name,
                   'type': 'HTTP',
+                  'timeoutSec': interval_sec,
+                  'checkIntervalSec': interval_sec,
+                  "unhealthyThreshold": 2, # number of fails allowed
                   "httpHealthCheck": {"requestPath": health_check_http_path,
                                       'port': port}}
         get = compute().healthChecks().get(project=project, healthCheck=config['name']).execute

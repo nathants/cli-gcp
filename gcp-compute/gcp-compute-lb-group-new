@@ -25,6 +25,7 @@ def main(name,
          local_ssd=False,
          init='',
          stop='',
+         health_check_interval_sec=15,
          project=os.environ['GCP_PROJECT']):
     lb_name = name
     assert suffix, 'you must specify --suffix'
@@ -71,7 +72,7 @@ def main(name,
             raise
         port = 8080
         health_check_http_path = '/health'
-        health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
+        health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port, health_check_interval_sec)
         logging.info(f'created default health check: {health_check_name}')
     else:
         logging.info(f'using existing health check: {health_check_name}')

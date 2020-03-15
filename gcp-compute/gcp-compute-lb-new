@@ -11,11 +11,12 @@ def main(name,
          timeout=30,
          port: 'http port on backend services' = 8080,
          verbose=False,
+         health_check_interval_sec=15,
          health_check_http_path="/health"):
     lb_name = name
 
     health_check_name = f'{lb_name}-health-checks'
-    health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port)
+    health_check = cli_gcp.ensure.health_check(verbose, project, health_check_name, health_check_http_path, port, health_check_interval_sec)
 
     backend_service_name = f'{lb_name}-backend-service'
     backend_service = cli_gcp.ensure.backend_service(verbose, project, timeout, cli_gcp.url(health_check), cli_gcp.port_name, backend_service_name)
