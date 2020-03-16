@@ -12,6 +12,7 @@ def main(name=None,
          region=os.environ['GCP_REGION'],):
     lb_name = name
     zones = shell.run('gcp-zones --region', region, echo=False).splitlines()
+    fail = True
 
     c = cli_gcp.compute()
 
@@ -49,6 +50,8 @@ def main(name=None,
                     if not lb_name or item['name'].startswith(f'{lb_name}-'):
                         res.append(item)
                 req = obj.list_next(req, resp)
+        if res:
+            fail = False
         if verbose:
             print(yaml.dump({name: res}).strip())
         else:
@@ -69,12 +72,13 @@ def main(name=None,
             if ipv4_address in a_records:
                 record, zone = a_records[ipv4_address]
                 name = address['name'].replace('-ip-address', '-dns-a-record')
+                fail = False
                 if verbose:
                     print(name, ipv4_address, record.name)
                 else:
                     print(name)
 
-    if not addresses:
+    if fail:
         sys.exit(1)
 
 if __name__ == '__main__':
