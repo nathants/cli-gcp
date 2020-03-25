@@ -98,7 +98,7 @@ def format(compute_instance):
     return ' '.join([
         (green if compute_instance['status'].lower() == 'running' else
          cyan if compute_instance['status'].lower() in ['provisioning', 'staging'] else
-         red)(compute_instance['labels'].get('name', f'missing name label: {compute_instance["name"]}')),
+         red)(compute_instance.get('labels', {}).get('name', f'missing-name-label:{compute_instance["name"]}')),
         compute_instance['machineType'].split('/')[-1],
         compute_instance['status'].lower(),
         compute_instance['id'],
