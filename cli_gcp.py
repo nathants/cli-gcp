@@ -370,6 +370,8 @@ class ensure:
                 logging.info(yaml.dump({'backendService': res}))
             else:
                 logging.info(f'backend has: {instance_group_manager_name}')
+            logging.info('sleeping 30 seconds to allow added backend to start receiving traffic')
+            time.sleep(30)
 
     def backend_hasnt_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name):
         try:
