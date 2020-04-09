@@ -61,6 +61,11 @@ def main(name,
             if getattr(getattr(e, "resp", None), "status", None) != 404:
                 raise
 
+    # when creating a loadbalancer-less group, for simple autoscaling compute,
+    # the group owns the health check and firewall, and should delete it unless
+    # another group is still using it
+    multiple_groups = len(shell.run(f'gcp-compute-lb-group-ls {lb_name} --no-instances --removed || true').splitlines()) > 1
+
     try:
         delete = cli_gcp.compute().autoscalers().delete(project=project, zone=zone, autoscaler=scaler_name).execute
         res = retry(delete, times=20, exponent=1.5, allowed_exception_fn=lambda e: getattr(getattr(e, "resp", None), "status", None) == 404)()
@@ -102,10 +107,6 @@ def main(name,
         else:
             logging.info(f'deleted: {template_name}')
 
-    # when creating a loadbalancer-less group, for simple autoscaling compute,
-    # the group owns the health check and firewall, and should delete it unless
-    # another group is still using it
-    multiple_groups = len(shell.run(f'gcp-compute-lb-group-ls {lb_name} --no-instances --removed || true').splitlines()) > 1
     if not has_backend and not multiple_groups:
         health_check = f'{lb_name}-health-checks'
         try:
