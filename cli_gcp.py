@@ -54,27 +54,27 @@ def ip_private(instance):
 
 @cached.func
 def compute():
-    return googleapiclient.discovery.build('compute', 'v1')
+    return retry(googleapiclient.discovery.build)('compute', 'v1')
 
 @cached.func
 def dns_client():
-    return google.cloud.dns.Client()
+    return retry(google.cloud.dns.Client)()
 
 @cached.func
 def compute_beta():
-    return googleapiclient.discovery.build('compute', 'beta')
+    return retry(googleapiclient.discovery.build)('compute', 'beta')
 
 @cached.func
 def logging_client():
-    return google.cloud.logging.Client()
+    return retry(google.cloud.logging.Client)()
 
 @cached.func
 def function():
-    return googleapiclient.discovery.build('cloudfunctions', 'v1')
+    return retry(googleapiclient.discovery.build)('cloudfunctions', 'v1')
 
 @cached.func
 def storage_client():
-    return google.cloud.storage.Client()
+    return retry(google.cloud.storage.Client)()
 
 def url(obj):
     return obj.get('targetLink') or obj['selfLink'] # target if insert(), self if get()
