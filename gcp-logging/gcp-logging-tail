@@ -5,6 +5,7 @@ import shell
 import os
 import argh
 import cli_gcp
+import logging
 
 def main(log_name='gcplogs-docker-driver',
          *container_metadata,
@@ -26,7 +27,7 @@ def main(log_name='gcplogs-docker-driver',
         entry = None
         last = time.time()
         for entry in logger.list_entries(filter_=filter):
-            print(entry.payload['message'])
+            logging.info(entry.payload['message'])
         if entry:
             timestamp = entry.timestamp.isoformat()
 

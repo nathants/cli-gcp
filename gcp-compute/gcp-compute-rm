@@ -17,7 +17,7 @@ def main(*selectors,
     for zone in zones:
         for instance in cli_gcp.ls(project, zone, selectors, 'all'):
             instances += [(zone, instance['name'])]
-            print(cli_gcp.format(instance))
+            logging.info(cli_gcp.format(instance))
     if not yes:
         logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'

@@ -23,13 +23,13 @@ def main(name,
     scaler_name = f'{name}-autoscaler-{zone}{suffix}'
     template_name = f'{name}-instance-template-{zone}{suffix}'
 
-    print('going to delete the following:\n')
+    logging.info('going to delete the following:\n')
 
-    print(group_name)
+    logging.info(group_name)
 
-    print(scaler_name)
+    logging.info(scaler_name)
 
-    print(template_name)
+    logging.info(template_name)
 
     try:
         group = cli_gcp.compute().instanceGroupManagers().get(project=project, zone=zone, instanceGroupManager=group_name).execute()
@@ -38,17 +38,17 @@ def main(name,
             raise
         group = None
     else:
-        print(group['name'], group['creationTimestamp'])
+        logging.info(f"{group['name']} {group['creationTimestamp']}")
         req = cli_gcp.compute().instanceGroupManagers().listManagedInstances(project=project, zone=zone, instanceGroupManager=group['name'])
         while req:
             resp = req.execute()
             for item in resp.get('managedInstances', []):
                 health = item["instanceHealth"][0]["detailedHealthState"]
-                print(f' {item.get("id")} {item.get("instanceStatus")} {health}')
+                logging.info(f' {item.get("id")} {item.get("instanceStatus")} {health}')
             req = cli_gcp.compute().instanceGroupManagers().list_next(req, resp)
 
     if not yes:
-        print('\nwould you like to proceed? y/n\n')
+        logging.info('\nwould you like to proceed? y/n\n')
         assert shell.getch() == 'y', 'abort'
 
     has_backend = False

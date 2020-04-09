@@ -207,7 +207,8 @@ def main(name,
             if verbose:
                 logging.info(yaml.dump({'result': res}))
             ids += [res['targetId']]
-        return ids
+        for id in ids:
+            print(id)
 
 if __name__ == '__main__':
     with cli_gcp.setup():
