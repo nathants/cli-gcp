@@ -161,8 +161,12 @@ def ls(project: str, zone: str, selectors: [str], state: str):
                 continue
             if ip_privs and item['networkInterfaces'][0]['networkIP'] not in ip_privs:
                 continue
-            if ips and item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] not in ips:
-                continue
+            if ips:
+                try:
+                    if item['networkInterfaces'][0]['accessConfigs'][0]['natIP'] not in ips:
+                        continue
+                except KeyError:
+                    continue
             ids.append(item['id'])
             yield item
         req = compute().instances().list_next(req, resp)
@@ -370,8 +374,8 @@ class ensure:
                 logging.info(yaml.dump({'backendService': res}))
             else:
                 logging.info(f'backend has: {instance_group_manager_name}')
-            logging.info('sleeping 30 seconds to allow added backend to start receiving traffic')
-            time.sleep(30)
+            logging.info('sleeping 180 seconds to allow added backend to start receiving traffic')
+            time.sleep(180)
 
     def backend_hasnt_instance_group(verbose, project, zone, backend_service_name, instance_group_manager_name):
         try:
