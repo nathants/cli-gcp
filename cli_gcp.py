@@ -182,7 +182,7 @@ def setup():
     logging.getLogger('googleapiclient.discovery').setLevel(logging.ERROR)
     util.log.setup(format='%(message)s')
     with shell.set_echo():
-        if util.hacks.override('--stream'):
+        if util.misc.override('--stream'):
             shell.set_stream().__enter__()
         try:
             yield
